@@ -36,4 +36,7 @@ __pycache__/
 
 # --- 系统/工具 ---
 .DS_Store
-Thumbs.db.pi/
+Thumbs.db
+
+# --- pi 本地配置 ---
+.pi/
