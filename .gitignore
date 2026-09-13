@@ -1,0 +1,39 @@
+# --- Node ---
+node_modules/
+
+# --- Next 构建产物 ---
+.next/
+out/
+
+# --- 前端壳构建 ---
+frontend/electron/dist/
+frontend/electron/next-server-build/
+frontend/build/
+
+# --- 数据(数据库/视频/日志, 含可能保存的 API Key) ---
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# --- 打包产物 ---
+release/
+backend/dist/
+backend/build/
+backend/*.spec
+
+# --- Python 缓存 ---
+__pycache__/
+*.pyc
+
+# --- 密钥 ---
+.env
+.env.local
+.env.*.local
+
+# --- 大视频产物(根目录实验素材) ---
+*.mp4
+
+# --- 系统/工具 ---
+.DS_Store
+Thumbs.db.pi/

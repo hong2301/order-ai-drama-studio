@@ -1,0 +1,8 @@
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+
+/* 窄滚动条(桌面工具风格) */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: #c9ced4; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #a8aeb6; }
+::-webkit-scrollbar-track { background: transparent; }

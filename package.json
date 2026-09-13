@@ -1,0 +1,16 @@
+{
+  "name": "ai-video-studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI短剧工坊 (Next.js前端 + Electron壳 + FastAPI后端 + 豆包Seedance视频生成)",
+  "scripts": {
+    "dev": "concurrently -k -n backend,frontend -c green,blue \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "python backend/run.py",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build": "node scripts/build.js",
+    "build:clean": "node scripts/build.js --clean"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.5"
+  }
+}

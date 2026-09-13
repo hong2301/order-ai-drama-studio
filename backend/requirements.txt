@@ -1,0 +1,6 @@
+# 后端运行时依赖 (FastAPI + 豆包 API)
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.0
+requests>=2.31
+python-multipart>=0.0.9
