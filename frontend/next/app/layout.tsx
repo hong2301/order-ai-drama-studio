@@ -5,8 +5,8 @@ import zhCN from "antd/locale/zh_CN";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AI短剧工坊",
-  description: "《嘴硬家属》15秒家庭短剧 · 豆包Seedance文字生成视频",
+  title: "AI视频工坊",
+  description: "AI视频工坊",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

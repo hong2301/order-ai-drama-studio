@@ -4,32 +4,25 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Col, Row, message } from "antd";
 import Header from "./Header";
 import ModelPanel from "./components/ModelPanel";
-import ControlPanel, { type Mode } from "./components/ControlPanel";
+import ControlPanel from "./components/ControlPanel";
 import PromptBox from "./components/PromptBox";
 import ResultArea from "./components/ResultArea";
 import { api } from "./lib/api";
 import type {
-  AiConfig, Character, Generation, GenerationCreate, Product, Scene, StoryTemplate, VideoRhythm,
+  AiConfig, Character, Generation, GenerationCreate, Product, Scene,
 } from "./lib/types";
 
 export default function Home() {
-  const [healthy, setHealthy] = useState<boolean | null>(null);
   const [configs, setConfigs] = useState<AiConfig[]>([]);
   const [characters, setCharacters] = useState<Character[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [scenes, setScenes] = useState<Scene[]>([]);
-  const [templates, setTemplates] = useState<StoryTemplate[]>([]);
-  const [rhythms, setRhythms] = useState<VideoRhythm[]>([]);
   const [generations, setGenerations] = useState<Generation[]>([]);
 
   const [selectedModelId, setSelectedModelId] = useState<number | null>(null);
-  const [mode, setMode] = useState<Mode>("structured");
   const [characterIds, setCharacterIds] = useState<number[]>([]);
   const [productId, setProductId] = useState<number | undefined>();
-  const [appearWay, setAppearWay] = useState("");
   const [sceneId, setSceneId] = useState<number | undefined>();
-  const [templateId, setTemplateId] = useState<number | undefined>();
-  const [rhythmId, setRhythmId] = useState<number | undefined>();
   const [duration, setDuration] = useState(5);
   const [resolution, setResolution] = useState("720p");
   const [ratio, setRatio] = useState("9:16");
@@ -44,23 +37,17 @@ export default function Home() {
 
   const loadAll = useCallback(async () => {
     try {
-      const h = await api.get<{ status: string }>("/api/health");
-      setHealthy(h.status === "ok");
-      const [cfg, ch, pr, sc, tp, rh, gn] = await Promise.all([
+      const [cfg, ch, pr, sc, gn] = await Promise.all([
         api.get<AiConfig[]>("/api/ai/configs"),
         api.get<Character[]>("/api/characters"),
         api.get<Product[]>("/api/products"),
         api.get<Scene[]>("/api/scenes"),
-        api.get<StoryTemplate[]>("/api/story-templates"),
-        api.get<VideoRhythm[]>("/api/video-rhythms"),
         api.get<Generation[]>("/api/generations"),
       ]);
       setConfigs(cfg); setCharacters(ch); setProducts(pr); setScenes(sc);
-      setTemplates(tp); setRhythms(rh); setGenerations(gn);
+      setGenerations(gn);
       // 首次默认
       setSelectedModelId((prev) => prev ?? cfg.find((x) => x.kind === "video")?.id ?? null);
-      setRhythmId((prev) => prev ?? rh[0]?.id);
-      setTemplateId((prev) => prev ?? tp[1]?.id ?? tp[0]?.id);
       setSceneId((prev) => prev ?? sc[2]?.id);
       setProductId((prev) => prev ?? pr[0]?.id);
       setCharacterIds((prev) => (prev.length ? prev : ch.slice(0, 2).map((c) => c.id)));
@@ -85,7 +72,6 @@ export default function Home() {
 
   // 结构化配置变化 -> 防抖刷新提示词预览
   useEffect(() => {
-    if (mode !== "structured") return;
     if (previewTimer.current) clearTimeout(previewTimer.current);
     previewTimer.current = setTimeout(async () => {
       setPreviewLoading(true);
@@ -102,17 +88,15 @@ export default function Home() {
     }, 300);
     return () => { if (previewTimer.current) clearTimeout(previewTimer.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, characterIds, productId, appearWay, sceneId, templateId, rhythmId, duration, resolution, ratio]);
+  }, [characterIds, productId, sceneId, duration, resolution, ratio]);
 
   const structuredPayload = (): GenerationCreate => ({
     mode: "structured",
     title: "",
     character_ids: characterIds,
     product_id: productId,
-    appear_way: appearWay,
+    appear_way: "",
     scene_id: sceneId,
-    template_id: templateId,
-    rhythm_id: rhythmId,
     duration,
     resolution,
     ratio,
@@ -123,10 +107,7 @@ export default function Home() {
     if (!prompt.trim()) { message.warning("提示词为空"); return; }
     setGenerating(true);
     try {
-      const body: GenerationCreate =
-        mode === "free"
-          ? { mode: "free", title: "自由模式", prompt, character_ids: [], appear_way: "", duration, resolution, ratio, seed: -1 }
-          : { ...structuredPayload(), title: "", prompt_override: promptDirty ? prompt : undefined };
+      const body: GenerationCreate = { ...structuredPayload(), title: "", prompt_override: promptDirty ? prompt : undefined };
       const g = await api.post<Generation>("/api/generations", body);
       message.success(`已提交生成任务 #${g.id}`);
       setPromptDirty(false);
@@ -141,7 +122,7 @@ export default function Home() {
 
   return (
     <div style={{ height: "100vh", boxSizing: "border-box", display: "flex", flexDirection: "column", background: "#f5f6f8", padding: "0 20px 14px" }}>
-      <Header healthy={healthy} />
+      <Header />
       <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
         <Row gutter={12} style={{ height: "100%" }}>
           <Col span={6} style={{ height: "100%" }}>
@@ -156,22 +137,19 @@ export default function Home() {
             <Row gutter={12} style={{ height: "100%" }}>
               <Col span={13} style={{ height: "100%", overflow: "auto" }}>
                 <ControlPanel
-                  mode={mode} onModeChange={setMode}
                   characters={characters} selectedCharacterIds={characterIds} onCharactersChange={setCharacterIds}
-                  products={products} selectedProductId={productId} appearWay={appearWay}
-                  onProductChange={(pid, way) => { setProductId(pid); setAppearWay(way || ""); }}
+                  products={products} selectedProductId={productId}
+                  onProductChange={setProductId}
                   scenes={scenes} selectedSceneId={sceneId} onSceneChange={setSceneId}
-                  templates={templates} selectedTemplateId={templateId} onTemplateChange={setTemplateId}
-                  rhythms={rhythms} selectedRhythmId={rhythmId} onRhythmChange={setRhythmId}
                   duration={duration} resolution={resolution} ratio={ratio}
                   onParamsChange={(p) => { if (p.duration !== undefined) setDuration(p.duration); if (p.resolution) setResolution(p.resolution); if (p.ratio) setRatio(p.ratio); }}
+                  onDataChanged={loadAll}
                 />
               </Col>
               <Col span={11} style={{ height: "100%", display: "flex", flexDirection: "column" }}>
                 <PromptBox
-                  mode={mode}
                   prompt={prompt} dirty={promptDirty} loading={previewLoading} generating={generating}
-                  onPromptEdit={(t) => { setPrompt(t); if (mode === "structured") setPromptDirty(true); }}
+                  onPromptEdit={(t) => { setPrompt(t); setPromptDirty(true); }}
                   onGenerate={handleGenerate}
                 />
               </Col>

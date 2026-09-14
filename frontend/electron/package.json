@@ -20,7 +20,7 @@
   },
   "build": {
     "appId": "com.ai.videostudio",
-    "productName": "AI短剧工坊",
+    "productName": "AI视频工坊",
     "copyright": "Copyright © 2026",
     "directories": {
       "output": "../build"

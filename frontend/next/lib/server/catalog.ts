@@ -94,22 +94,23 @@ export function makeCrud(spec: CrudSpec): ResourceRepo {
 // ---------- 五个字典档 ----------
 export const charactersRepo = makeCrud({
   table: "characters",
-  cols: ["name", "family_role", "age", "profession", "traits", "look"],
+  cols: ["name", "family_role", "age", "profession", "traits", "look", "prompt", "photos"],
+  jsonCols: ["photos"],
   intCols: ["age"],
-  defaults: { name: "", family_role: "", age: 0, profession: "", traits: "", look: "" },
+  defaults: { name: "", family_role: "", age: 0, profession: "", traits: "", look: "", prompt: "", photos: [] },
 });
 
 export const productsRepo = makeCrud({
   table: "products",
-  cols: ["name", "category", "fit_persons", "appear_ways", "desc"],
+  cols: ["name", "category", "fit_persons", "appear_ways", "desc", "prompt"],
   jsonCols: ["fit_persons", "appear_ways"],
-  defaults: { name: "", category: "", fit_persons: [], appear_ways: [], desc: "" },
+  defaults: { name: "", category: "", fit_persons: [], appear_ways: [], desc: "", prompt: "" },
 });
 
 export const scenesRepo = makeCrud({
   table: "scenes",
-  cols: ["name", "location", "desc", "atmosphere", "timing"],
-  defaults: { name: "", location: "", desc: "", atmosphere: "", timing: "" },
+  cols: ["name", "location", "desc", "atmosphere", "timing", "prompt"],
+  defaults: { name: "", location: "", desc: "", atmosphere: "", timing: "", prompt: "" },
 });
 
 export const templatesRepo = makeCrud({

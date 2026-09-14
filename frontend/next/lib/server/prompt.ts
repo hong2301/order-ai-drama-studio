@@ -9,13 +9,13 @@ export const SERIES_SETTING = `《嘴硬家属》15秒家庭情感短剧。固�
 - 产品通过放进背包、放进冰箱、放进行李箱等动作自然出现，不承担说教任务；
 - 结尾强调家人关系，不直接喊购买，不宣传治疗作用，不出现吃完立即见效画面。`;
 
-/** 人物块: 每人一行, 名字+家庭角色+年龄职业+性格+外形(保证生成一致性) */
+/** 人物块: 每人一行(优先用人物提示词 prompt, 否则回落旧字段组合) */
 function personsBlock(characters: Character[]): string {
   return characters.map((c) => {
-    const parts: string[] = [];
     const name = (c.name || "").trim();
-    const role = (c.family_role || "").trim();
-    parts.push(role ? `${name}(${role})` : name);
+    const prompt = (c.prompt || "").trim();
+    if (name && prompt) return `${name}：${prompt}`;
+    const parts: string[] = [name];
     if (c.age) parts.push(`${c.age}岁`);
     if ((c.profession || "").trim()) parts.push(c.profession.trim());
     if ((c.traits || "").trim()) parts.push(c.traits.trim());
@@ -26,6 +26,8 @@ function personsBlock(characters: Character[]): string {
 
 function productBlock(product: Product, appearWay: string): string {
   const name = (product.name || "").trim();
+  const prompt = (product.prompt || "").trim();
+  if (prompt) return `产品：${name}。${prompt}`;
   const way = (appearWay || "").trim();
   if (way) return `产品：${name}。出现方式：${way}。画面中保留2至3秒清晰露出产品。`;
   return `产品：${name}。通过放进背包/冰箱/行李箱等自然动作出现，画面中保留2至3秒清晰露出。`;
@@ -33,6 +35,8 @@ function productBlock(product: Product, appearWay: string): string {
 
 function sceneBlock(scene: Scene): string {
   const name = (scene.name || "").trim();
+  const prompt = (scene.prompt || "").trim();
+  if (prompt) return `${name}。${prompt}`;
   const loc = (scene.location || "").trim();
   const d = (scene.desc || "").trim();
   const at = (scene.atmosphere || "").trim();

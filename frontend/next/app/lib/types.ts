@@ -21,6 +21,8 @@ export interface Character {
   profession: string;
   traits: string;
   look: string;
+  prompt?: string;
+  photos?: string[];
   active: boolean;
 }
 
@@ -31,6 +33,7 @@ export interface Product {
   fit_persons: string[];
   appear_ways: string[];
   desc: string;
+  prompt?: string;
   active: boolean;
 }
 
@@ -41,6 +44,7 @@ export interface Scene {
   desc: string;
   atmosphere: string;
   timing: string;
+  prompt?: string;
   active: boolean;
 }
 

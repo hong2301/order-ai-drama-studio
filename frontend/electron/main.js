@@ -1,4 +1,4 @@
-// AI短剧工坊 Electron 壳
+// AI视频工坊 Electron 壳
 // dev:   加载 http://127.0.0.1:3171 (后端由 npm run dev 拉起)
 // prod:  拉起 resources/backend/drama-backend.exe, 等待就绪后加载 out/index.html
 // 端口与环境变量同源: 根 .env 的 BACKEND_PORT / FRONTEND_PORT (默认 8031 / 3171)

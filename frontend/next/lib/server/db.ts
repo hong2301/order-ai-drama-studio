@@ -38,6 +38,7 @@ export function getDb(): Database.Database {
       logger.warn("PRAGMA 设置失败(忽略): %s", (e as Error).message);
     }
     seed(_db);
+    migrate(_db);
     // 首次访问时后台恢复未完成任务(替代 instrumentation: 避免 edge 编译问题)
     if (!_booted) {
       _booted = true;
@@ -94,6 +95,8 @@ CREATE TABLE IF NOT EXISTS characters (
     profession  TEXT DEFAULT '',
     traits      TEXT DEFAULT '',
     look        TEXT DEFAULT '',
+    prompt      TEXT DEFAULT '',
+    photos      TEXT DEFAULT '[]',
     active      INTEGER DEFAULT 1,
     sort_order  INTEGER DEFAULT 0
 );
@@ -104,6 +107,7 @@ CREATE TABLE IF NOT EXISTS products (
     fit_persons TEXT DEFAULT '[]',
     appear_ways TEXT DEFAULT '[]',
     desc        TEXT DEFAULT '',
+    prompt      TEXT DEFAULT '',
     active      INTEGER DEFAULT 1,
     sort_order  INTEGER DEFAULT 0
 );
@@ -114,6 +118,7 @@ CREATE TABLE IF NOT EXISTS scenes (
     desc        TEXT DEFAULT '',
     atmosphere  TEXT DEFAULT '',
     timing      TEXT DEFAULT '',
+    prompt      TEXT DEFAULT '',
     active      INTEGER DEFAULT 1,
     sort_order  INTEGER DEFAULT 0
 );
@@ -237,6 +242,19 @@ const SEED_AI: [string, string, string, string, Record<string, unknown>, string,
    "用于模型连接测试与提示词扩写等文本能力"],
 ];
 
+function migrate(db: Database.Database): void {
+  try {
+    const tableCols = (t: string) => queryAll<{ name: string }>(db, `PRAGMA table_info(${t})`).map((c) => c.name);
+    if (!tableCols("characters").includes("prompt")) db.exec("ALTER TABLE characters ADD COLUMN prompt TEXT DEFAULT ''");
+    if (!tableCols("characters").includes("photos")) db.exec("ALTER TABLE characters ADD COLUMN photos TEXT DEFAULT '[]'");
+    if (!tableCols("products").includes("prompt")) db.exec("ALTER TABLE products ADD COLUMN prompt TEXT DEFAULT ''");
+    if (!tableCols("scenes").includes("prompt")) db.exec("ALTER TABLE scenes ADD COLUMN prompt TEXT DEFAULT ''");
+    persist();
+  } catch (e) {
+    logger.warn("migrate 失败(忽略): %s", (e as Error).message);
+  }
+}
+
 function seed(db: Database.Database): void {
   const exists = queryOne<{ c: number }>(
     db, "SELECT COUNT(*) c FROM sqlite_master WHERE type='table' AND name='characters'")?.c;
@@ -244,12 +262,24 @@ function seed(db: Database.Database): void {
   db.exec(SCHEMA);
   const key = process.env.DOUBAO_API_KEY || "";
   const ins = db.transaction(() => {
-    const ic = db.prepare("INSERT INTO characters(name,family_role,age,profession,traits,look,sort_order) VALUES(?,?,?,?,?,?,?)");
-    SEED_CHARACTERS.forEach((r, i) => ic.run(...r, i));
-    const ip = db.prepare("INSERT INTO products(name,category,fit_persons,appear_ways,desc,sort_order) VALUES(?,?,?,?,?,?)");
-    SEED_PRODUCTS.forEach((r, i) => ip.run(r[0], r[1], JSON.stringify(r[2]), JSON.stringify(r[3]), r[4], i));
-    const is = db.prepare("INSERT INTO scenes(name,location,desc,atmosphere,timing,sort_order) VALUES(?,?,?,?,?,?)");
-    SEED_SCENES.forEach((r, i) => is.run(...r, i));
+    const ic = db.prepare("INSERT INTO characters(name,family_role,age,profession,traits,look,prompt,photos,sort_order) VALUES(?,?,?,?,?,?,?,?,?)");
+    SEED_CHARACTERS.forEach((r, i) => {
+      const [name, _role, age, prof, traits, look] = r;
+      const prompt = `${name}，${age}岁，${prof}。${traits}。外形：${look}。`;
+      ic.run(name, "", age, prof, traits, look, prompt, "[]", i);
+    });
+    const ip = db.prepare("INSERT INTO products(name,category,fit_persons,appear_ways,desc,prompt,sort_order) VALUES(?,?,?,?,?,?,?)");
+    SEED_PRODUCTS.forEach((r, i) => {
+      const [name, category, fitPersons, appearWays, desc] = r;
+      const prompt = `${name}(${category})。出现方式：${appearWays.join("、")}。${desc}`;
+      ip.run(name, category, JSON.stringify(fitPersons), JSON.stringify(appearWays), desc, prompt, i);
+    });
+    const is = db.prepare("INSERT INTO scenes(name,location,desc,atmosphere,timing,prompt,sort_order) VALUES(?,?,?,?,?,?,?)");
+    SEED_SCENES.forEach((r, i) => {
+      const [name, location, desc, atmosphere, timing] = r;
+      const prompt = `${name}，${location}。${desc}。氛围：${atmosphere}，时机：${timing}。`;
+      is.run(name, location, desc, atmosphere, timing, prompt, i);
+    });
     const it = db.prepare("INSERT INTO story_templates(name,story_line,relation_hint,conflict,beats,example,seed_prompt,sort_order) VALUES(?,?,?,?,?,?,?,?)");
     SEED_TEMPLATES.forEach((r, i) => it.run(r[0], r[1], r[2], r[3], JSON.stringify(r[4]), r[5], r[6], i));
     const ir = db.prepare("INSERT INTO video_rhythms(name,duration,desc,segments,sort_order) VALUES(?,?,?,?,?)");
