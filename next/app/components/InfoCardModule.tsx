@@ -212,8 +212,8 @@ export default function InfoCardModule(props: {
     <div
       style={{ flex: 1, minHeight: 0, width: "100%", display: "flex", flexDirection: "column", borderRadius: 12, border: "1px solid #e5e5e5", background: "#fff", overflow: "hidden" }}
     >
-      {/* 模块标题行 + 搜索(靠右) */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderBottom: "1px solid #eee" }}>
+      {/* 模块标题行: 标题 + 搜索/批量删除/新增(全在右侧) */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderBottom: "1px solid #eee" }}>
         <span style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }}>{title}</span>
         <div style={{ flex: 1 }} />
         <Input
@@ -221,11 +221,26 @@ export default function InfoCardModule(props: {
           prefix={<SearchOutlined style={{ color: "#bbb" }} />}
           allowClear
           size="small"
-          style={{ width: 170 }}
+          style={{ width: 110 }}
           onChange={(e) => {
             if (debounceRef.current) clearTimeout(debounceRef.current);
             debounceRef.current = setTimeout(() => { filterRef.current = { kw: e.target.value.trim() }; applyFilter(); }, 300);
           }}
+        />
+        <Popconfirm
+          title={`确认删除选中的 ${selected.length} 条？`}
+          okText="删除" cancelText="取消" okButtonProps={{ danger: true }}
+          onConfirm={() => void delBatch()}
+          disabled={!selected.length}
+        >
+          <Button danger size="small" icon={<DeleteOutlined />} disabled={!selected.length} title="批量删除" />
+        </Popconfirm>
+        <Button
+          type="primary"
+          size="small"
+          icon={<PlusOutlined />}
+          onClick={openAdd}
+          title={`新增${title}`}
         />
       </div>
 
@@ -252,28 +267,6 @@ export default function InfoCardModule(props: {
         </ConfigProvider>
         {loadingMore && <div style={{ textAlign: "center", padding: 8, fontSize: 12, color: "#bbb" }}>加载中…</div>}
         {!hasMore && items.length > 0 && <div style={{ textAlign: "center", padding: 8, fontSize: 12, color: "#ccc" }}>没有更多了</div>}
-      </div>
-
-      {/* 底部工具栏: 批量删除 + 新增 */}
-      <div style={{ borderTop: "1px solid #eee", padding: 8, display: "flex", alignItems: "center", gap: 8 }}>
-        <Popconfirm
-          title={`确认删除选中的 ${selected.length} 条？`}
-          okText="删除" cancelText="取消" okButtonProps={{ danger: true }}
-          onConfirm={() => void delBatch()}
-          disabled={!selected.length}
-        >
-          <Button danger size="small" icon={<DeleteOutlined />} disabled={!selected.length}>
-            批量删除{selected.length > 0 ? ` (${selected.length})` : ""}
-          </Button>
-        </Popconfirm>
-        <div style={{ flex: 1 }} />
-        <Button
-          type="primary"
-          size="small"
-          icon={<PlusOutlined />}
-          onClick={openAdd}
-          title={`新增${title}`}
-        />
       </div>
 
       {/* 行右键菜单 */}
