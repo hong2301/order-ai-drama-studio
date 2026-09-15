@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { App as AntApp, Button, InputNumber, Segmented, Space } from "antd";
 import { PlayCircleOutlined } from "@ant-design/icons";
 
@@ -10,6 +10,18 @@ export default function ConsoleModule() {
   const [resolution, setResolution] = useState<string>("1080P");
   const [ratio, setRatio] = useState<string>("9:16");
   const [duration, setDuration] = useState<number>(15);
+
+  // 剧本联动: 选中剧本时同步其解析出的 分辨率/比例/时长(没有的保留默认)
+  useEffect(() => {
+    const onLink = (e: Event): void => {
+      const d = (e as CustomEvent).detail as { resolution?: string; duration?: string; ratio?: string };
+      if (d.resolution) setResolution(d.resolution);
+      if (d.ratio) setRatio(d.ratio);
+      if (d.duration) setDuration(Number(d.duration) || 15);
+    };
+    window.addEventListener("library-link", onLink);
+    return () => window.removeEventListener("library-link", onLink);
+  }, []);
 
   const start = (): void => {
     // TODO: 接入视频生成流程后在此触发

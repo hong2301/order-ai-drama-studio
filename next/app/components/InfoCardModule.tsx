@@ -44,6 +44,7 @@ export default function InfoCardModule(props: {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  // 列表数据(用于联动选中)
   const [selected, setSelected] = useState<number[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; id: number } | null>(null);
@@ -61,6 +62,7 @@ export default function InfoCardModule(props: {
   const importFilesRef = useRef<HTMLInputElement | null>(null);   // 选择多个文件
   const importFolderRef = useRef<HTMLInputElement | null>(null);  // 选择文件夹(webkitdirectory)
   const [pasteContent, setPasteContent] = useState("");
+  const linkRef = useRef<number[] | null>(null); // 待置顶的联动 id
   const [form] = Form.useForm();
 
   const hasMore = items.length < total;
@@ -139,6 +141,26 @@ export default function InfoCardModule(props: {
     if (files.length) void callImport(files, "");
   };
 
+  // 剧本联动: 选中剧本时, 本库对应 id 的记录置顶并选中
+  useEffect(() => {
+    const onLink = (e: Event): void => {
+      const d = (e as CustomEvent).detail as {
+        chars: number[]; scenes: number[]; prods: number[];
+      };
+      const type = api.split("/").filter(Boolean).pop(); // characters/scenes/products
+      const ids = type === "characters" ? d.chars : type === "scenes" ? d.scenes : d.prods;
+      if (!ids || !ids.length) return;
+      linkRef.current = ids;
+      // 当前已加载项里能匹配的先选中
+      setSelected((prev) => [...new Set([...prev, ...ids.filter((n) => items.some((x) => x.id === n))])]);
+      void load(1, false, filterRef.current.kw);
+    };
+    window.addEventListener("library-link", onLink);
+    return () => window.removeEventListener("library-link", onLink);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api, load, items]);
+
+  // 新增保存(手动填写)
   const save = async (): Promise<void> => {
     let values: { name: string; identity?: string[]; prompt?: string };
     try { values = await form.validateFields(); } catch { return; }
@@ -214,7 +236,7 @@ export default function InfoCardModule(props: {
 
   const columns: ColumnsType<CardItem> = [
     {
-      title: "名称", dataIndex: "name", key: "name",
+      title: "名称", dataIndex: "name", key: "name", width: 96,
       ellipsis: true,
       render: (v: string) => (
         <Tooltip title={v} placement="topLeft"><span style={{ fontSize: 13 }}>{v}</span></Tooltip>

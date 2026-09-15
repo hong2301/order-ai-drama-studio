@@ -213,8 +213,32 @@ export default function ScriptModule() {
   };
 
   // 点击行: 切换勾选(高亮 + 选中联动)
+  /** JSON 数组安全解析 */
+  const parseIds = (raw?: string): number[] => {
+    try { const a = JSON.parse(raw || "[]") as unknown[]; return a.filter((n): n is number => typeof n === "number"); } catch { return []; }
+  };
+
   const toggleSelect = (id: number): void => {
-    setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    setSelected((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      // 选中时联动: 三库对应记录置顶+选中; 控制台同步解析出的参数
+      if (next.includes(id)) {
+        const rec = items.find((i) => i.id === id);
+        if (rec) {
+          window.dispatchEvent(new CustomEvent("library-link", {
+            detail: {
+              chars: parseIds(rec.character_ids),
+              scenes: parseIds(rec.scene_ids),
+              prods: parseIds(rec.product_ids),
+              resolution: rec.resolution || "",
+              duration: rec.duration || "",
+              ratio: rec.ratio || "",
+            },
+          }));
+        }
+      }
+      return next;
+    });
   };
 
   // 右键手动解析剧本(识别人物/场景/产品/清晰度/时长/关键词)
