@@ -223,7 +223,7 @@ export default function ChatModule() {
   return (
     <div style={{ width: 460, display: "flex", flexDirection: "column", borderRadius: 12, border: "1px solid #e5e5e5", background: "#fff", overflow: "hidden" }}>
       {/* 对话区(左上角: 圆形会话列表按钮; 点击展开矩形列表) */}
-      <div ref={listRef} style={{ flex: 1, minHeight: 0, overflow: "auto", paddingTop: listOpen ? 356 : 16, paddingLeft: 16, paddingRight: 16, paddingBottom: 16, transition: "padding-top .28s cubic-bezier(.4,0,.2,1)", display: "flex", flexDirection: "column", gap: 12, position: "relative" }}>
+      <div ref={listRef} style={{ flex: 1, minHeight: 0, overflow: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 12, position: "relative" }}>
         {/* 点击遮罩: 收起会话列表 */}
         {listOpen && <div onClick={() => setListOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 13, background: "transparent" }} />}
         {/* 圆形列表按钮 ⇄ 矩形会话列表(同一元素形变) */}
@@ -382,19 +382,23 @@ export default function ChatModule() {
               type="default"
               shape="circle"
               size="large"
-              icon={<PaperClipOutlined />}
               onClick={() => fileRef.current?.click()}
               title="上传附件（最多 9 个）"
-            />
+              style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0 }}
+            >
+              <PaperClipOutlined style={{ display: "block", lineHeight: 0 }} />
+            </Button>
             <Button
               type="primary"
               shape="circle"
               size="large"
-              icon={<SendOutlined />}
               loading={sending}
               disabled={!input.trim()}
               onClick={send}
-            />
+              style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0 }}
+            >
+              <SendOutlined style={{ display: "block", lineHeight: 0 }} />
+            </Button>
           </div>
       </div>
 

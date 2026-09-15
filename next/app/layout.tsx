@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { ConfigProvider } from "antd";
+import { AntdRegistry } from "@ant-design/nextjs-registry";
 import "antd/dist/reset.css";
 import "./globals.css";
 
@@ -32,7 +33,10 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="zh-CN">
       <body>
-        <ConfigProvider theme={blackWhiteTheme}>{children}</ConfigProvider>
+        {/* AntdRegistry: SSR 时把 antd 样式注入 HTML 头部, 避免刷新时按钮无样式闪烁(FOUC) */}
+        <AntdRegistry>
+          <ConfigProvider theme={blackWhiteTheme}>{children}</ConfigProvider>
+        </AntdRegistry>
       </body>
     </html>
   );
