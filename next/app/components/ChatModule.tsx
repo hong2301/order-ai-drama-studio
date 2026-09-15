@@ -174,7 +174,7 @@ export default function ChatModule() {
             <Button
               type="default"
               shape="circle"
-              size="middle"
+              size="large"
               icon={<PaperClipOutlined />}
               onClick={() => fileRef.current?.click()}
               title="上传图片附件（最多 9 张）"

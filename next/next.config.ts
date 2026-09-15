@@ -24,6 +24,8 @@ const nextConfig: NextConfig = {
   // standalone: 自带独立 Node 服务器(Electron 主进程直接跑, 用户无需装 Node)
   output: "standalone",
   images: { unoptimized: true },
+  // Electron 壳经 127.0.0.1 访问 dev 资源(热更新), 允许跨域
+  allowedDevOrigins: ["127.0.0.1"],
   // better-sqlite3 为原生模块: 交由 Node 运行时从 node_modules 直接加载(webpack 不参与)
   serverExternalPackages: ["sql.js"],
 };
