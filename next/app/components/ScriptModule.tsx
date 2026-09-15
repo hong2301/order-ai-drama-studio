@@ -150,9 +150,9 @@ export default function ScriptModule() {
 
   return (
     <div style={{ width: 460, display: "flex", flexDirection: "column", borderRadius: 12, border: "1px solid #e5e5e5", background: "#fff", overflow: "hidden" }}>
-      {/* 顶部工具栏: 批量删除(选中时出现) */}
-      <div style={{ display: "flex", alignItems: "center", padding: "10px 12px", borderBottom: "1px solid #eee", minHeight: 40 }}>
-        {selected.length > 0 && (
+      {/* 顶部工具栏: 仅选中行时显示批量删除(不占空位) */}
+      {selected.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", padding: "10px 12px", borderBottom: "1px solid #eee" }}>
           <Popconfirm
             title={`确认删除选中的 ${selected.length} 条剧本？`}
             okText="删除" cancelText="取消" okButtonProps={{ danger: true }}
@@ -162,8 +162,8 @@ export default function ScriptModule() {
               批量删除 ({selected.length})
             </Button>
           </Popconfirm>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* 剧本列表(左侧选择列) */}
       <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: 8 }}>
