@@ -219,9 +219,11 @@ export default function ChatModule() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: text, images, messages }),
       });
-      const j = (await r.json()) as { detail?: string; reply?: string };
+      const j = (await r.json()) as { detail?: string; reply?: string; scriptsChanged?: boolean };
       if (!r.ok) throw new Error(j.detail || `HTTP ${r.status}`);
       setMessages((m) => [...m, { role: "assistant", content: j.reply || "" }]);
+      // AI 通过工具新增了剧本 → 通知剧本模块刷新
+      if (j.scriptsChanged) window.dispatchEvent(new CustomEvent("scripts-changed"));
     } catch (e) {
       message.error((e as Error).message);
       setMessages((m) => [...m, { role: "assistant", content: `(调用失败) ${(e as Error).message}` }]);

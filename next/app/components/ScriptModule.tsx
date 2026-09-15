@@ -72,6 +72,19 @@ export default function ScriptModule() {
 
   useEffect(() => { void load(1, false, "", null); }, [load]);
 
+  // 其他模块(如 AI 对话通过工具新增剧本)通知后自动刷新
+  useEffect(() => {
+    const refresh = (): void => applyFilter();
+    window.addEventListener("scripts-changed", refresh);
+    return () => window.removeEventListener("scripts-changed", refresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Modal 渲染完成后重置提示词表单(避免在实例未连接时 resetFields 触发 antd 警告)
+  useEffect(() => {
+    if (modalOpen) textForm.resetFields();
+  }, [modalOpen, textForm]);
+
   const applyFilter = (): void => {
     const { kw, dates } = filterRef.current;
     setPage(1);
@@ -188,7 +201,6 @@ export default function ScriptModule() {
 
   const openAdd = (): void => {
     setFileList([]);
-    textForm.resetFields();
     setModalOpen(true);
   };
 
