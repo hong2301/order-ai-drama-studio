@@ -54,7 +54,11 @@ function loadConvs(): { convs: Conv[]; activeId: string | null } {
   return { convs: [], activeId: null };
 }
 function saveConvs(convs: Conv[], activeId: string | null): void {
-  try { localStorage.setItem(CONVS_KEY, JSON.stringify({ convs: convs.slice(-30), activeId })); } catch { /* ignore */ }
+  try {
+    // 空会话不入库(仅当前会话例外, 保证重启后还能接着写)
+    const keep = convs.filter((c) => c.messages.length > 0 || c.id === activeId);
+    localStorage.setItem(CONVS_KEY, JSON.stringify({ convs: keep.slice(-30), activeId }));
+  } catch { /* ignore */ }
 }
 
 /** AI 对话模块(第一个模块, 无标题): 对话区 + 底部一体输入框(附件/发送) */
@@ -110,12 +114,12 @@ export default function ChatModule() {
     setAtts([]);
     setListOpen(false);
   };
-  // 新建会话
+  // 新建会话(顺便丢弃其它空会话, 避免列表堆积)
   const newConv = (): void => {
     const id = `c_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const c: Conv = { id, title: "新对话", updatedAt: Date.now(), messages: [] };
     setConvs((prev) => {
-      const next = [...prev, c];
+      const next = [...prev.filter((x) => x.messages.length > 0), c];
       saveConvs(next, id);
       return next;
     });
@@ -225,12 +229,14 @@ export default function ChatModule() {
             transition: "width .28s cubic-bezier(.4,0,.2,1), height .28s cubic-bezier(.4,0,.2,1), border-radius .28s cubic-bezier(.4,0,.2,1), box-shadow .28s",
           }}
         >
-          {/* 收起态: 居中列表图标(展开时淡出) */}
-          <UnorderedListOutlined style={{ fontSize: 14, color: "#888", position: "absolute", top: 11, left: 11, opacity: listOpen ? 0 : 1, transition: "opacity .12s" }} />
+          {/* 收起态: 居中列表图标(展开时淡出; flex 居中避免基线偏移) */}
+          <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", opacity: listOpen ? 0 : 1, transition: "opacity .12s", pointerEvents: "none" }}>
+            <UnorderedListOutlined style={{ fontSize: 14, color: "#888", display: "block" }} />
+          </span>
           {/* 展开态: 会话列表(形变后淡入) */}
           <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", opacity: listOpen ? 1 : 0, transition: "opacity .2s .1s" }}>
             <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
-              {[...convs].sort((a, b) => b.updatedAt - a.updatedAt).map((c) => (
+              {[...convs].filter((c) => c.messages.length > 0).sort((a, b) => b.updatedAt - a.updatedAt).map((c) => (
                 <div
                   key={c.id}
                   className="conv-item"
