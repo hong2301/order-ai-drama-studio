@@ -198,6 +198,14 @@ export default function InfoCardModule(props: {
           ),
         } as ColumnsType<CardItem>[number]]
       : []),
+    {
+      title: "提示词", dataIndex: "prompt", key: "prompt",
+      ellipsis: true,
+      render: (v: string) =>
+        v
+          ? <Tooltip title={v} placement="topLeft"><span style={{ fontSize: 12, color: "#888" }}>{v}</span></Tooltip>
+          : <span style={{ fontSize: 12, color: "#ccc" }}>—</span>,
+    },
   ];
 
   return (
