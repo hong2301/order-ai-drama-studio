@@ -174,7 +174,7 @@ export default function ScriptModule() {
             loading={loading}
             dataSource={data}
             columns={columns}
-            pagination={{ pageSize: 8, size: "small", showTotal: (t) => `共 ${t} 条` }}
+            pagination={{ pageSize: 8, size: "small" }}
             locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有剧本" style={{ padding: 24 }} /> }}
             rowSelection={{
               selectedRowKeys: selected,
@@ -184,8 +184,12 @@ export default function ScriptModule() {
         </ConfigProvider>
       </div>
 
-      {/* 底部: 新增按钮(靠右) */}
-      <div style={{ borderTop: "1px solid #eee", padding: 10, display: "flex", justifyContent: "flex-end" }}>
+      {/* 底部: 左侧统计 + 右侧新增按钮 */}
+      <div style={{ borderTop: "1px solid #eee", padding: "10px 12px", display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: 12, color: data.length > 0 ? "#999" : "#ccc" }}>
+          {data.length > 0 ? `共 ${data.length} 条` : "还没有剧本"}
+        </span>
+        <div style={{ flex: 1 }} />
         <Button
           type="primary"
           icon={<PlusOutlined />}
