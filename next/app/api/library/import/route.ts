@@ -1,25 +1,43 @@
-// 文件夹批量导入: POST /api/library/import  multipart(type + files[])
-// 流程: 图片→图片库; 文本(txt/md/docx)→汇总; 调豆包(extract_import 工具)提取
-//       {name, identity[], prompt}(已知名称/身份剔除后整理为提示词); 写目标表
+// 资料库导入: POST /api/library/import multipart(type + files[]? + content?)
+// 模式A 文件/文件夹: files[] 逐个处理 — 图片→图片库; txt/md 读文本; docx 读文本+提取内嵌图片
+// 模式B 粘贴提示词: content 大段提示词, 无文件
+// 之后调豆包(extract_import 工具)提取 {name, identity[], prompt}(剔除已知字段),
+// 写入目标表 characters/scenes/products
 import type { NextRequest } from "next/server";
 import fs from "fs";
 import path from "path";
 import mammoth from "mammoth";
 import { chat, DoubaoError, type ToolDef } from "@/lib/server/doubao";
 import { dataDir, getDb, persist } from "@/lib/server/db";
+import type { Database } from "sql.js";
 
 export const dynamic = "force-dynamic";
 
 const IMG_EXT = ["jpg", "jpeg", "png", "gif", "webp"];
-const TEXT_MAX = 6000; // 每个文本文件截断长度
-const TOTAL_MAX = 20000; // 汇总文本总长
+const TEXT_MAX = 6000;   // 单个文本截断
+const TOTAL_MAX = 20000; // 汇总总长
 
-/** 类型 -> 资料库表名 与 标签语义 */
-const TABLE: Record<string, { table: string; label: string; tip: string }> = {
-  characters: { table: "characters", label: "身份", tip: "人物角色(身份通常是人设/职业/关系, 如 主角/婆婆/儿子)" },
-  scenes:     { table: "scenes",     label: "类型", tip: "场景(类型通常是环境/空间/时段, 如 客厅/医院/夜晚)" },
-  products:   { table: "products",   label: "品类", tip: "产品(品类通常是产品类型/形态/卖点, 如 保健品/礼盒)" },
+const TABLE: Record<string, { table: string; typeName: string; tip: string }> = {
+  characters: { table: "characters", typeName: "人物", tip: "人物身份通常是角色/职业/关系, 如 主角/儿子/护士" },
+  scenes:     { table: "scenes",     typeName: "场景", tip: "场景类型通常是环境/空间/时段, 如 客厅/教室/夜晚" },
+  products:   { table: "products",   typeName: "产品", tip: "产品品类通常是类型/形态/卖点, 如 保健品/礼盒" },
 };
+
+/** 插入一张图片到 images 表, 返回 id */
+async function saveImage(db: Database, buf: Buffer, name: string, desc: string, now: string): Promise<number> {
+  const imgDir = path.join(dataDir(), "uploads", "images");
+  fs.mkdirSync(imgDir, { recursive: true });
+  const ext = (name.split(".").pop() || "png").toLowerCase() in { jpg: 1, jpeg: 1, png: 1, gif: 1, webp: 1 }
+    ? (name.split(".").pop() || "png").toLowerCase()
+    : "png";
+  const saved = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  fs.writeFileSync(path.join(imgDir, saved), buf);
+  db.run(
+    "INSERT INTO images(path, name, description, created_at, updated_at) VALUES(?,?,?,?,?)",
+    [`/api/uploads/images/${saved}`, name.replace(/\.\w+$/, ""), desc, now, now],
+  );
+  return Number(db.exec("SELECT last_insert_rowid()")[0]?.values[0]?.[0] ?? 0);
+}
 
 export async function POST(req: NextRequest): Promise<Response> {
   let form: FormData;
@@ -31,40 +49,59 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (!cfg) return Response.json({ detail: "未知导入类型" }, { status: 400 });
 
   const files = form.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
-  if (!files.length) return Response.json({ detail: "未收到文件" }, { status: 400 });
+  const paste = String(form.get("content") || "").trim();
+  if (!files.length && !paste) return Response.json({ detail: "请拖入/选择文件，或粘贴提示词" }, { status: 400 });
   if (files.length > 40) return Response.json({ detail: "单次最多导入 40 个文件" }, { status: 400 });
 
   const db = await getDb();
-
-  // ---------- 1) 分类: 图片入图片库; 文本汇总 ----------
-  let texts: string[] = [];
-  let imgIds: number[] = [];
   const now = new Date().toISOString();
-  const imgDir = path.join(dataDir(), "uploads", "images");
-  fs.mkdirSync(imgDir, { recursive: true });
 
+  // ---------- 1) 分类处理: 图片入库 / 文本汇总 / docx 提取文本+图片 ----------
+  const texts: string[] = [];
+  const imgIds: number[] = [];
+
+  if (paste) {
+    texts.push(paste);
+  }
   for (const f of files) {
     const ext = (f.name.split(".").pop() || "").toLowerCase();
     const buf = Buffer.from(await f.arrayBuffer());
     if (IMG_EXT.includes(ext)) {
-      const saved = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-      fs.writeFileSync(path.join(imgDir, saved), buf);
-      db.run(
-        "INSERT INTO images(path, name, description, created_at, updated_at) VALUES(?,?,?,?,?)",
-        [`/api/uploads/images/${saved}`, f.name.replace(/\.\w+$/, ""), "", now, now],
-      );
-      imgIds.push(Number(db.exec("SELECT last_insert_rowid()")[0]?.values[0]?.[0] ?? 0));
-    } else {
+      imgIds.push(await saveImage(db, buf, f.name, "", now));
+    } else if (ext === "docx") {
+      // 文本
       let text = "";
-      try {
-        if (ext === "docx") text = (await mammoth.extractRawText({ buffer: buf })).value || "";
-        else if (["txt", "md"].includes(ext)) text = buf.toString("utf8");
-      } catch { /* 跳过解析失败 */ }
+      try { text = (await mammoth.extractRawText({ buffer: buf })).value || ""; } catch { /* ignore */ }
       if (text.trim()) texts.push(`--- 文件: ${f.name} ---\n${text.slice(0, TEXT_MAX)}`);
+      // 内嵌图片
+      try {
+        await mammoth.convertToHtml({ buffer: buf }, {
+          convertImage: mammoth.images.imgElement(async (img) => {
+            const imageBuf = await img.read();
+            const ctype = img.contentType || "";
+            const iext = ctype.includes("png") ? "png" : ctype.includes("gif") ? "gif" : "jpg";
+            const saved = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${iext}`;
+            const imgDir = path.join(dataDir(), "uploads", "images");
+            fs.mkdirSync(imgDir, { recursive: true });
+            fs.writeFileSync(path.join(imgDir, saved), imageBuf);
+            db.run(
+              "INSERT INTO images(path, name, description, created_at, updated_at) VALUES(?,?,?,?,?)",
+              [`/api/uploads/images/${saved}`, `${f.name.replace(/\.\w+$/, "")}_图`, "word文档内嵌图片", now, now],
+            );
+            imgIds.push(Number(db.exec("SELECT last_insert_rowid()")[0]?.values[0]?.[0] ?? 0));
+            return { src: `/api/uploads/images/${saved}` };
+          }),
+        });
+      } catch { /* ignore */ }
+    } else if (["txt", "md"].includes(ext)) {
+      const text = buf.toString("utf8").slice(0, TEXT_MAX);
+      if (text.trim()) texts.push(`--- 文件: ${f.name} ---\n${text}`);
     }
+    // 其他扩展名: 跳过
   }
+
   if (!texts.length && !imgIds.length) {
-    return Response.json({ detail: "文件夹内没有可解析的文本或图片" }, { status: 400 });
+    return Response.json({ detail: "没有可解析的文本或图片" }, { status: 400 });
   }
 
   // ---------- 2) 调豆包提取字段 ----------
@@ -73,19 +110,23 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (!apiKey) return Response.json({ detail: "未配置 DOUBAO_API_KEY" }, { status: 500 });
   const modelId = process.env.DOUBAO_CHAT_MODEL || "doubao-seed-2-0-mini-260428";
 
+  const sourceNote = files.length
+    ? `用户提供了一组文件/文件夹内容(${files.length} 个文件, 内含图片 ${imgIds.length} 张已自动入库)。`
+    : "用户直接粘贴了一大段提示词/描述(无文件)。";
+
   const userText = [
-    `用户拖入了一个文件夹，想把它作为一条「${type === "characters" ? "人物" : type === "scenes" ? "场景" : "产品"}」导入资料库（${cfg.tip}）。`,
-    "以下是文件夹内全部文本内容：",
+    `现在要把以下内容作为一条「${cfg.typeName}」对象导入资料库（${cfg.tip}）。`,
+    sourceNote,
+    "内容如下：",
     texts.join("\n\n").slice(0, TOTAL_MAX),
-    `文件夹内图片共 ${imgIds.length} 张，将自动存入图片库。`,
-    "请提取该对象的：name(名称)、identity(上面要求语义的标签数组)、prompt(提示词)。",
-    "prompt 规则：把文本中已经提到的名称、身份标签等「已知信息字段」剔除去掉后，整理为一段连贯、可被 AI 用于创作的提示词；如果剔除后没剩多少，就把文本内容总结成通顺的提示词。",
+    "请提取该对象的 name(名称)、identity(按上述语义的标签数组, 可多个)、prompt(提示词)。",
+    "prompt 规则：把内容中已直接提到的名称、identity 标签等「已知字段」剔除去掉后，整理为一段连贯、清晰、可直接用于 AI 创作/生图的提示词；若剔除后所剩不多, 则把内容总结成通顺的提示词(可适当补全细节, 但不要编造原文没有的核心设定)。",
     "请调用 extract_import 工具返回结果。",
   ].join("\n");
 
   const tool: ToolDef = {
     name: "extract_import",
-    description: "从文件夹导入内容中提取资料库记录字段并返回",
+    description: "从导入内容中提取资料库记录字段并返回",
     parameters: {
       type: "object",
       properties: {
@@ -111,13 +152,13 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   if (!result.value?.name?.trim()) {
-    return Response.json({ detail: "AI 未能从文件夹内容中识别出名称" }, { status: 422 });
+    return Response.json({ detail: "AI 未能从内容中识别出名称" }, { status: 422 });
   }
 
   // ---------- 3) 写目标表 ----------
   const name = String(result.value.name).trim().slice(0, 80);
   const identity = Array.isArray(result.value.identity) ? result.value.identity.map((s) => String(s).trim()).filter(Boolean) : [];
-  const prompt = String(result.value.prompt || "").trim() || "导入自文件夹";
+  const prompt = String(result.value.prompt || "").trim() || "导入自内容";
   db.run(
     `INSERT INTO ${cfg.table}(name, identity, prompt, image_ids, created_at, updated_at) VALUES(?,?,?,?,?,?)`,
     [name, JSON.stringify(identity), prompt, JSON.stringify(imgIds), now, now],
@@ -125,5 +166,5 @@ export async function POST(req: NextRequest): Promise<Response> {
   const id = Number(db.exec("SELECT last_insert_rowid()")[0]?.values[0]?.[0] ?? 0);
   await persist();
 
-  return Response.json({ ok: true, id, name, identity, prompt, images: imgIds });
+  return Response.json({ ok: true, id, name, identity, prompt, images: imgIds, mode: paste ? "paste" : "file" });
 }

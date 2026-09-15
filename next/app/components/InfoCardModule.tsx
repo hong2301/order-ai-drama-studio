@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { App as AntApp, Button, ConfigProvider, Empty, Form, Input, Modal, Popconfirm, Select, Table, Tag, Tooltip, Upload } from "antd";
-import { DeleteOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
+import { App as AntApp, Button, ConfigProvider, Empty, Form, Input, Modal, Popconfirm, Select, Table, Tabs, Tag, Tooltip, Upload } from "antd";
+import { DeleteOutlined, FolderOpenOutlined, PaperClipOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import zhCN from "antd/locale/zh_CN";
 import type { UploadFile } from "antd/es/upload/interface";
@@ -58,6 +58,9 @@ export default function InfoCardModule(props: {
   const scrollRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const importFilesRef = useRef<HTMLInputElement | null>(null);   // 选择多个文件
+  const importFolderRef = useRef<HTMLInputElement | null>(null);  // 选择文件夹(webkitdirectory)
+  const [pasteContent, setPasteContent] = useState("");
   const [form] = Form.useForm();
 
   const hasMore = items.length < total;
@@ -105,19 +108,22 @@ export default function InfoCardModule(props: {
     }
   };
 
-  // 新增保存
-  // 拖入文件夹: 后端读文本+图片入库+AI提取字段后写入本库
-  const importFromFolder = async (files: File[]): Promise<void> => {
+  // 导入统一入口: files(文件/文件夹) 或 content(粘贴提示词)
+  const callImport = async (files: File[] | null, content: string): Promise<void> => {
     const type = api.split("/").filter(Boolean).pop() || "characters"; // /api/characters -> characters
     const fd = new FormData();
     fd.append("type", type);
-    for (const f of files) fd.append("files", f, f.webkitRelativePath || f.name);
+    if (content.trim()) fd.append("content", content);
+    for (const f of files || []) fd.append("files", f, f.webkitRelativePath || f.name);
     setImporting(true);
     try {
       const r = await fetch("/api/library/import", { method: "POST", body: fd });
       const j = (await r.json()) as { detail?: string; name?: string; identity?: string[]; images?: number[] };
       if (!r.ok) throw new Error(j.detail || "导入失败");
       message.success(`已导入「${j.name}」(标签 ${(j.identity || []).length} 个 · 图片 ${(j.images || []).length} 张)`);
+      setModalOpen(false);
+      setPasteContent("");
+      setSelected([]);
       applyFilter();
     } catch (e) {
       message.error((e as Error).message);
@@ -130,7 +136,7 @@ export default function InfoCardModule(props: {
     e.preventDefault();
     setDragging(false);
     const files = Array.from(e.dataTransfer?.files || []);
-    if (files.length) void importFromFolder(files);
+    if (files.length) void callImport(files, "");
   };
 
   const save = async (): Promise<void> => {
@@ -325,53 +331,127 @@ export default function InfoCardModule(props: {
         </>
       )}
 
-      {/* 新增弹窗 */}
-      <Modal open={modalOpen} title={`新增${title}`} onCancel={() => { setModalOpen(false); setPickedImgs([]); form.resetFields(); }} onOk={() => void save()} okText="添加" cancelText="取消" width={440} destroyOnHidden>
-        <Form form={form} layout="vertical" style={{ marginTop: 8 }}>
-          <Form.Item name="name" label="名称" rules={[{ required: true, message: "请输入名称" }]}>
-            <Input placeholder="名称" maxLength={80} />
-          </Form.Item>
-          {showIdentity && (
-            <Form.Item name="identity" label={identityLabel}>
-              <Select mode="tags" placeholder={identityPlaceholder} open={false} suffixIcon={null} style={{ width: "100%" }} tokenSeparators={[",", "，"]} />
-            </Form.Item>
-          )}
-          <Form.Item name="prompt" label="提示词">
-            <Input.TextArea placeholder="该对象的提示词/描述（可选）" autoSize={{ minRows: 3, maxRows: 6 }} style={{ fontSize: 13 }} />
-          </Form.Item>
-          <Form.Item label="图片（可多选）">
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {library.map((img) => (
-                <div
-                  key={img.id}
-                  onClick={() => setPickedImgs((prev) => (prev.includes(img.id) ? prev.filter((x) => x !== img.id) : [...prev, img.id]))}
-                  title={img.name || img.description}
-                  style={{ position: "relative", width: 48, height: 48, borderRadius: 8, overflow: "hidden", border: pickedImgs.includes(img.id) ? "2px solid #000" : "1px solid #eee", cursor: "pointer", flexShrink: 0 }}
-                >
-                  <img src={img.path} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+      {/* 新增弹窗: 手动填写 / 粘贴提示词 / 上传文件或文件夹 */}
+      <Modal open={modalOpen} title={`新增${title}`} onCancel={() => { setModalOpen(false); setPickedImgs([]); setPasteContent(""); form.resetFields(); }} footer={null} width={460} destroyOnHidden>
+        <Tabs
+          size="small"
+          items={[
+            {
+              key: "manual",
+              label: "手动填写",
+              children: (
+                <>
+                  <Form form={form} layout="vertical" style={{ marginTop: 4 }}>
+                    <Form.Item name="name" label="名称" rules={[{ required: true, message: "请输入名称" }]}>
+                      <Input placeholder="名称" maxLength={80} />
+                    </Form.Item>
+                    {showIdentity && (
+                      <Form.Item name="identity" label={identityLabel}>
+                        <Select mode="tags" placeholder={identityPlaceholder} open={false} suffixIcon={null} style={{ width: "100%" }} tokenSeparators={[",", "，"]} />
+                      </Form.Item>
+                    )}
+                    <Form.Item name="prompt" label="提示词">
+                      <Input.TextArea placeholder="该对象的提示词/描述（可选）" autoSize={{ minRows: 3, maxRows: 6 }} style={{ fontSize: 13 }} />
+                    </Form.Item>
+                    <Form.Item label="图片（可多选）">
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {library.map((img) => (
+                          <div
+                            key={img.id}
+                            onClick={() => setPickedImgs((prev) => (prev.includes(img.id) ? prev.filter((x) => x !== img.id) : [...prev, img.id]))}
+                            title={img.name || img.description}
+                            style={{ position: "relative", width: 48, height: 48, borderRadius: 8, overflow: "hidden", border: pickedImgs.includes(img.id) ? "2px solid #000" : "1px solid #eee", cursor: "pointer", flexShrink: 0 }}
+                          >
+                            <img src={img.path} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                          </div>
+                        ))}
+                        <div onClick={() => fileRef.current?.click()} style={{ width: 48, height: 48, borderRadius: 8, border: "1px dashed #ccc", display: "flex", alignItems: "center", justifyContent: "center", color: "#999", fontSize: 22, cursor: "pointer" }}>
+                          +
+                        </div>
+                        <input
+                          ref={fileRef}
+                          type="file"
+                          accept="image/*"
+                          style={{ display: "none" }}
+                          onChange={async (e) => {
+                            const f = e.target.files?.[0];
+                            e.target.value = "";
+                            if (!f) return;
+                            try { await uploadImg(f); } catch (err) { message.error((err as Error).message); }
+                          }}
+                        />
+                      </div>
+                      {pickedImgs.length > 0 && <div style={{ fontSize: 12, color: "#999", marginTop: 4 }}>已选 {pickedImgs.length} 张</div>}
+                    </Form.Item>
+                  </Form>
+                  <Button type="primary" block onClick={() => void save()}>添加</Button>
+                </>
+              ),
+            },
+            {
+              key: "paste",
+              label: "粘贴提示词",
+              children: (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 6 }}>
+                  <Input.TextArea
+                    value={pasteContent}
+                    onChange={(e) => setPasteContent(e.target.value)}
+                    placeholder={`粘贴一大段关于该${title.replace("库", "")}的提示词/描述…
+AI 会自动识别名称、${identityLabel}标签并整理为提示词入库（无图片也可）`}
+                    autoSize={{ minRows: 8, maxRows: 14 }}
+                    style={{ fontSize: 13 }}
+                  />
+                  <Button type="primary" block loading={importing} disabled={!pasteContent.trim()} onClick={() => void callImport(null, pasteContent)}>
+                    AI 整理并添加
+                  </Button>
                 </div>
-              ))}
-              {/* 上传新图 */}
-              <div onClick={() => fileRef.current?.click()} style={{ width: 48, height: 48, borderRadius: 8, border: "1px dashed #ccc", display: "flex", alignItems: "center", justifyContent: "center", color: "#999", fontSize: 22, cursor: "pointer" }}>
-                +
-              </div>
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/*"
-                style={{ display: "none" }}
-                onChange={async (e) => {
-                  const f = e.target.files?.[0];
-                  e.target.value = "";
-                  if (!f) return;
-                  try { await uploadImg(f); } catch (err) { message.error((err as Error).message); }
-                }}
-              />
-            </div>
-            {pickedImgs.length > 0 && <div style={{ fontSize: 12, color: "#999", marginTop: 4 }}>已选 {pickedImgs.length} 张</div>}
-          </Form.Item>
-        </Form>
+              ),
+            },
+            {
+              key: "upload",
+              label: "上传文件/文件夹",
+              children: (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 6 }}>
+                  <div style={{ border: "1px dashed #ddd", borderRadius: 8, padding: "18px 12px", textAlign: "center", color: "#999", fontSize: 13 }}>
+                    支持 txt / md / word(.docx) / 图片
+                    <br />（word 内嵌图片会一并提取入库）
+                  </div>
+                  <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+                    <Button icon={<PaperClipOutlined />} loading={importing} onClick={() => importFilesRef.current?.click()}>选择文件</Button>
+                    <Button icon={<FolderOpenOutlined />} loading={importing} onClick={() => importFolderRef.current?.click()}>选择文件夹</Button>
+                  </div>
+                  <div style={{ fontSize: 12, color: "#bbb", textAlign: "center" }}>也可以直接拖到卡片上</div>
+                  <input
+                    ref={importFilesRef}
+                    type="file"
+                    multiple
+                    accept=".txt,.md,.docx,.jpg,.jpeg,.png,.gif,.webp"
+                    style={{ display: "none" }}
+                    onChange={async (e) => {
+                      const fs = Array.from(e.target.files || []);
+                      e.target.value = "";
+                      if (fs.length) await callImport(fs, "");
+                    }}
+                  />
+                  <input
+                    ref={importFolderRef}
+                    type="file"
+                    multiple
+                    // @ts-expect-error webkitdirectory 为浏览器扩展属性
+                    webkitdirectory=""
+                    style={{ display: "none" }}
+                    onChange={async (e) => {
+                      const fs = Array.from(e.target.files || []);
+                      e.target.value = "";
+                      if (fs.length) await callImport(fs, "");
+                    }}
+                  />
+                </div>
+              ),
+            },
+          ]}
+        />
       </Modal>
-    </div>
+</div>
   );
 }
