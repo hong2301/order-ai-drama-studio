@@ -233,15 +233,14 @@ export default function InfoCardModule(props: {
           onConfirm={() => void delBatch()}
           disabled={!selected.length}
         >
-          <Button danger size="small" icon={<DeleteOutlined />} disabled={!selected.length} title="批量删除" style={{ height: 24, display: "inline-flex", alignItems: "center", justifyContent: "center" }} />
+          <Button danger icon={<DeleteOutlined style={{ fontSize: 12 }} />} disabled={!selected.length} title="批量删除" style={{ width: 24, height: 24, padding: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }} />
         </Popconfirm>
         <Button
           type="primary"
-          size="small"
-          icon={<PlusOutlined />}
+          icon={<PlusOutlined style={{ fontSize: 12 }} />}
           onClick={openAdd}
           title={`新增${title}`}
-          style={{ height: 24, display: "inline-flex", alignItems: "center", justifyContent: "center" }}
+          style={{ width: 24, height: 24, padding: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }}
         />
       </div>
 
