@@ -275,6 +275,32 @@ export default function ScriptModule() {
         />
       </div>
 
+      {/* 滚动加载列表 */}
+      <div ref={scrollRef} onScroll={onScroll} style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 8 }}>
+        <ConfigProvider locale={zhCN}>
+          <Table<Script>
+            rowKey="id"
+            size="small"
+            loading={loading}
+            dataSource={items}
+            columns={columns}
+            pagination={false}
+            locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有剧本" style={{ padding: 24 }} /> }}
+            onRow={(rec) => ({
+              onContextMenu: (e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, id: rec.id }); },
+              onClick: () => toggleSelect(rec.id),
+            })}
+            rowClassName={(rec) => (selected.includes(rec.id) ? "script-row-active" : "")}
+            rowSelection={{
+              selectedRowKeys: selected,
+              onChange: (keys) => setSelected(keys as number[]),
+            }}
+          />
+        </ConfigProvider>
+        {loadingMore && <div style={{ textAlign: "center", padding: 10, fontSize: 12, color: "#bbb" }}>加载中…</div>}
+        {!hasMore && items.length > 0 && <div style={{ textAlign: "center", padding: 10, fontSize: 12, color: "#ccc" }}>没有更多了</div>}
+      </div>
+
       {/* 底部工具栏: 批量删除(常驻, 未选中置灰) + 新增(靠右) */}
       <div style={{ borderTop: "1px solid #eee", padding: 10, display: "flex", alignItems: "center", gap: 8 }}>
         <Popconfirm
@@ -302,33 +328,8 @@ export default function ScriptModule() {
         />
       </div>
 
-      {/* 滚动加载列表 */}
-      <div ref={scrollRef} onScroll={onScroll} style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 8 }}>
-        <ConfigProvider locale={zhCN}>
-          <Table<Script>
-            rowKey="id"
-            size="small"
-            loading={loading}
-            dataSource={items}
-            columns={columns}
-            pagination={false}
-            locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有剧本" style={{ padding: 24 }} /> }}
-            onRow={(rec) => ({
-              onContextMenu: (e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, id: rec.id }); },
-              onClick: () => toggleSelect(rec.id),
-            })}
-            rowClassName={(rec) => (selected.includes(rec.id) ? "script-row-active" : "")}
-            rowSelection={{
-              selectedRowKeys: selected,
-              onChange: (keys) => setSelected(keys as number[]),
-            }}
-          />
-        </ConfigProvider>
-        {loadingMore && <div style={{ textAlign: "center", padding: 10, fontSize: 12, color: "#bbb" }}>加载中…</div>}
-        {!hasMore && items.length > 0 && <div style={{ textAlign: "center", padding: 10, fontSize: 12, color: "#ccc" }}>没有更多了</div>}
-      </div>
-
-      {/* 行右键菜单: 删除 */}
+      
+{/* 行右键菜单: 删除 */}
       {menu && (
         <>
           <div
