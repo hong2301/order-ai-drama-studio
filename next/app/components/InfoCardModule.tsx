@@ -235,6 +235,7 @@ export default function InfoCardModule(props: {
             className="clickable-table"
             rowKey="id"
             size="small"
+            showHeader={false}
             loading={loading}
             dataSource={items}
             columns={columns}
