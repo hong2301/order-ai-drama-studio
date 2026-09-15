@@ -37,6 +37,14 @@ body {
 .conv-new:hover { background: #fafafa; }
 .conv-menu-item:hover { background: #fafafa; }
 
+/* 剧本行选中高亮(点击行勾选) */
+.script-row-active {
+  background: #f5f5f5;
+}
+.script-row-active td {
+  background: #f5f5f5 !important;
+}
+
 /* 对话气泡滚动条(可选) */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-thumb { background: #ddd; border-radius: 3px; }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { App as AntApp, Button, ConfigProvider, DatePicker, Empty, Form, Input, Modal, Popconfirm, Table, Tabs, Upload } from "antd";
+import { App as AntApp, Button, ConfigProvider, DatePicker, Empty, Form, Input, Modal, Popconfirm, Table, Tabs, Tooltip, Upload } from "antd";
 import { DeleteOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import zhCN from "antd/locale/zh_CN";
@@ -205,11 +205,20 @@ export default function ScriptModule() {
     setModalOpen(true);
   };
 
+  // 点击行: 切换勾选(高亮 + 选中联动)
+  const toggleSelect = (id: number): void => {
+    setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
   const columns: ColumnsType<Script> = [
     {
       title: "名称", dataIndex: "name", key: "name",
       ellipsis: true,
-      render: (v: string) => <span style={{ fontSize: 13 }}>{v}</span>,
+      render: (v: string) => (
+        <Tooltip title={v} placement="topLeft">
+          <span style={{ fontSize: 13 }}>{v}</span>
+        </Tooltip>
+      ),
     },
     {
       title: "文件路径", dataIndex: "file_path", key: "file_path", width: 150,
@@ -294,7 +303,9 @@ export default function ScriptModule() {
             locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有剧本" style={{ padding: 24 }} /> }}
             onRow={(rec) => ({
               onContextMenu: (e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, id: rec.id }); },
+              onClick: () => toggleSelect(rec.id),
             })}
+            rowClassName={(rec) => (selected.includes(rec.id) ? "script-row-active" : "")}
             rowSelection={{
               selectedRowKeys: selected,
               onChange: (keys) => setSelected(keys as number[]),
