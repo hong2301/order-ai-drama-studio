@@ -48,6 +48,7 @@ export default function InfoCardModule(props: {
   const [modalOpen, setModalOpen] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; id: number } | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [importing, setImporting] = useState(false); // 文件夹导入中
 
   // 图片资源库
   const [library, setLibrary] = useState<ImageItem[]>([]);
@@ -105,6 +106,33 @@ export default function InfoCardModule(props: {
   };
 
   // 新增保存
+  // 拖入文件夹: 后端读文本+图片入库+AI提取字段后写入本库
+  const importFromFolder = async (files: File[]): Promise<void> => {
+    const type = api.split("/").filter(Boolean).pop() || "characters"; // /api/characters -> characters
+    const fd = new FormData();
+    fd.append("type", type);
+    for (const f of files) fd.append("files", f, f.webkitRelativePath || f.name);
+    setImporting(true);
+    try {
+      const r = await fetch("/api/library/import", { method: "POST", body: fd });
+      const j = (await r.json()) as { detail?: string; name?: string; identity?: string[]; images?: number[] };
+      if (!r.ok) throw new Error(j.detail || "导入失败");
+      message.success(`已导入「${j.name}」(标签 ${(j.identity || []).length} 个 · 图片 ${(j.images || []).length} 张)`);
+      applyFilter();
+    } catch (e) {
+      message.error((e as Error).message);
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent): void => {
+    e.preventDefault();
+    setDragging(false);
+    const files = Array.from(e.dataTransfer?.files || []);
+    if (files.length) void importFromFolder(files);
+  };
+
   const save = async (): Promise<void> => {
     let values: { name: string; identity?: string[]; prompt?: string };
     try { values = await form.validateFields(); } catch { return; }
@@ -211,10 +239,20 @@ export default function InfoCardModule(props: {
   return (
     <div
       style={{ flex: 1, minHeight: 0, width: "100%", display: "flex", flexDirection: "column", borderRadius: 12, border: "1px solid #e5e5e5", background: "#fff", overflow: "hidden" }}
+      onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={handleDrop}
     >
+      {/* 拖拽悬停高亮遮罩 */}
+      {dragging && (
+        <div style={{ position: "absolute", inset: 0, zIndex: 40, background: "rgba(0,0,0,0.06)", border: "2px dashed #000", borderRadius: 12, pointerEvents: "none", display: "flex", alignItems: "center", justifyContent: "center", color: "#888", fontSize: 14 }}>
+          松开添加文件夹（自动识别并导入）
+        </div>
+      )}
       {/* 模块标题行: 标题 + 搜索/批量删除/新增(全在右侧) */}
       <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderBottom: "1px solid #eee" }}>
         <span style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }}>{title}</span>
+        {importing && <span style={{ fontSize: 12, color: "#888", whiteSpace: "nowrap" }}>导入中…</span>}
         <div style={{ flex: 1 }} />
         <Input
           placeholder="搜索名称"
