@@ -2,12 +2,27 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button, Input, Modal, message } from "antd";
-import { PaperClipOutlined, SendOutlined } from "@ant-design/icons";
+import { PaperClipOutlined, SendOutlined, DeleteOutlined } from "@ant-design/icons";
 
 interface Msg { role: "user" | "assistant"; content: string; images?: string[] }
 interface Att { name: string; url: string }
 
 const MAX_ATTACH = 9; // 最多 9 个附件
+const HISTORY_KEY = "aivs:chat:v1"; // 对话历史 localStorage 键
+
+/** 恢复/保存对话历史(最近一次聊天, 重启应用不丢失) */
+function loadHistory(): Msg[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw) as unknown;
+    if (!Array.isArray(arr)) return [];
+    return arr.filter((m): m is Msg => !!m && (m as Msg).role === "user" || ((m as Msg).role === "assistant" && typeof (m as Msg).content === "string"));
+  } catch { return []; }
+}
+function saveHistory(msgs: Msg[]): void {
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(msgs.slice(-50))); } catch { /* ignore */ }
+}
 
 /** AI 对话模块(第一个模块, 无标题): 对话区 + 底部一体输入框(附件/发送) */
 export default function ChatModule() {
@@ -15,10 +30,21 @@ export default function ChatModule() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [atts, setAtts] = useState<Att[]>([]);
-  const [preview, setPreview] = useState<string | null>(null); // 图片点击预览
+  const [preview, setPreview] = useState<Att | null>(null); // 图片点击预览(带文件名)
   const [uploading, setUploading] = useState(0);
+  const [loading, setLoading] = useState(true); // 历史是否已恢复(避免首屏闪历史)
   const listRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
+
+  // 首次加载: 恢复最近一次聊天
+  useEffect(() => {
+    setMessages(loadHistory());
+    setLoading(false);
+  }, []);
+  // 消息变化时自动保存(最多保留 50 条)
+  useEffect(() => {
+    if (!loading) saveHistory(messages);
+  }, [messages, loading]);
 
   useEffect(() => {
     const el = listRef.current;
@@ -82,8 +108,18 @@ export default function ChatModule() {
 
   return (
     <div style={{ width: 460, display: "flex", flexDirection: "column", borderRadius: 12, border: "1px solid #e5e5e5", background: "#fff", overflow: "hidden" }}>
-      {/* 对话区 */}
-      <div ref={listRef} style={{ flex: 1, minHeight: 0, overflow: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+      {/* 对话区(右上角小工具: 有历史时显示清空按钮) */}
+      <div ref={listRef} style={{ flex: 1, minHeight: 0, overflow: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 12, position: "relative" }}>
+        {messages.length > 0 && !sending && (
+          <Button
+            size="small"
+            type="text"
+            icon={<DeleteOutlined style={{ fontSize: 13 }} />}
+            onClick={() => { setMessages([]); setAtts([]); }}
+            title="清空对话历史"
+            style={{ position: "absolute", top: 8, right: 8, color: "#bbb" }}
+          />
+        )}
         {messages.length === 0 && !sending && (
           <div style={{ color: "#aaa", fontSize: 13, textAlign: "center", marginTop: 48 }}>
             <div style={{ fontSize: 30, marginBottom: 10 }}>🎬</div>
@@ -135,13 +171,13 @@ export default function ChatModule() {
                     className="att-item"
                     title={isImg ? "点击预览" : `打开 ${a.name}`}
                     onClick={() => {
-                      if (isImg) setPreview(a.url);
+                      if (isImg) setPreview(a);
                       else window.open(a.url, "_blank");
                     }}
-                    style={{ position: "relative", width: 56, height: 44, borderRadius: 8, overflow: "hidden", border: "1px solid #eee", flexShrink: 0, cursor: "pointer" }}
+                    style={{ position: "relative", width: 56, height: 44, borderRadius: 8, border: "1px solid #eee", flexShrink: 0, cursor: "pointer" }}
                   >
                     {isImg ? (
-                      <img src={a.url} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                      <img src={a.url} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", borderRadius: 7 }} />
                     ) : (
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 2, color: "#999", background: "#fafafa" }}>
                         <PaperClipOutlined style={{ fontSize: 15 }} />
@@ -156,7 +192,7 @@ export default function ChatModule() {
                         position: "absolute", top: -6, right: -6, width: 16, height: 16,
                         borderRadius: "50%", background: "#ff4d4f", color: "#fff",
                         fontSize: 11, lineHeight: "14px", textAlign: "center", cursor: "pointer",
-                        boxShadow: "0 1px 3px rgba(0,0,0,0.3)", zIndex: 2,
+                        boxShadow: "0 1px 3px rgba(0,0,0,0.3)", zIndex: 9,
                       }}
                     >
                       ×
@@ -213,9 +249,9 @@ export default function ChatModule() {
           </div>
       </div>
 
-      {/* 图片点击预览 */}
-      <Modal open={!!preview} footer={null} closable onCancel={() => setPreview(null)} width={800} style={{ top: 30 }}>
-        {preview && <img src={preview} alt="预览" style={{ width: "100%", display: "block", borderRadius: 4 }} />}
+      {/* 图片点击预览: 弹窗标题显示文件名 */}
+      <Modal open={!!preview} footer={null} closable onCancel={() => setPreview(null)} width={800} style={{ top: 30 }} title={preview?.name}>
+        {preview && <img src={preview.url} alt={preview.name} style={{ width: "100%", display: "block", borderRadius: 4 }} />}
       </Modal>
     </div>
   );

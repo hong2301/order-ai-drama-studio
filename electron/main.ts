@@ -1,7 +1,7 @@
 // AI视频工坊 Electron 壳(TypeScript)
 // dev:   加载 http://127.0.0.1:3171 (Next 全栈由根 npm run dev 一起拉起)
 // prod:  加载 exe 同级 .env -> 启动 resources/next-server 的 standalone 服务器 -> loadURL(3171)
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, shell } from "electron";
 import * as path from "path";
 import * as fs from "fs";
 import { execFileSync } from "child_process";
@@ -101,6 +101,18 @@ function createWindow(): void {
   win.webContents.on("render-process-gone", (_e, d) => {
     log(`渲染进程崩溃: ${d.reason}`);
     try { win.reload(); } catch { /* ignore */ }
+  });
+  // 附件非图片文件点击(window.open): 不用下载, 而是用系统默认应用直接打开本地文件
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    const m = /^http:\/\/127\.0\.0\.1:\d+\/api\/uploads\/([\w-]+)\/([\w.-]+)$/.exec(url);
+    if (m) {
+      const file = path.join(dataDir(), "uploads", path.basename(m[1]), path.basename(m[2]));
+      if (fs.existsSync(file)) void shell.openPath(file);
+      return { action: "deny" };
+    }
+    // 站外链接: 交给系统浏览器
+    if (url.startsWith("http:") || url.startsWith("https:")) void shell.openExternal(url);
+    return { action: "deny" };
   });
   void win.loadURL(`http://127.0.0.1:${FRONTEND_PORT}`);
 }

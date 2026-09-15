@@ -8,7 +8,12 @@ export const dynamic = "force-dynamic";
 
 const MIME: Record<string, string> = {
   jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
-  gif: "image/gif", webp: "image/webp",
+  gif: "image/gif", webp: "image/webp", svg: "image/svg+xml",
+  pdf: "application/pdf",
+  txt: "text/plain", md: "text/markdown", json: "application/json", csv: "text/csv",
+  html: "text/html",
+  mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime",
+  mp3: "audio/mpeg", wav: "audio/wav", m4a: "audio/mp4",
 };
 
 type Ctx = { params: Promise<{ folder: string; name: string }> };

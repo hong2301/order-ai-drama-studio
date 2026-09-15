@@ -17,7 +17,6 @@ export default function Home() {
       >
         <VideoCameraOutlined style={{ fontSize: 22, color: "#000" }} />
         <span style={{ fontWeight: 700, fontSize: 16, letterSpacing: 0.5 }}>AI视频工坊</span>
-        <span style={{ fontSize: 12, color: "#999" }}>AI Video Studio</span>
         <div style={{ flex: 1 }} />
         <Button
           shape="default"
