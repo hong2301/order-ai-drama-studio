@@ -24,9 +24,11 @@ if (!gotLock) {
   });
 }
 
-// ---------- 数据目录(正式版 = exe 同级 data) ----------
+// ---------- 数据目录 ----------
+// dev: 项目根 data/(由 next 侧解析); 正式版: win=exe 同级 data, mac=userData/data(系统惯例, 可写)
 function dataDir(): string {
   if (isDev) return path.join(__dirname, "..", "..", "data");
+  if (process.platform === "darwin") return path.join(app.getPath("userData"), "data");
   return path.join(path.dirname(app.getPath("exe")), "data");
 }
 
@@ -105,8 +107,9 @@ function createWindow(): void {
 
 app.whenReady().then(async () => {
   if (!isDev) {
-    // 生产: 读 exe 同级 .env + 启动 next server + 等就绪
-    loadEnvFile(path.join(path.dirname(app.getPath("exe")), ".env"));
+    // 生产: 读 .env(build 复制; win=exe同级, mac=Resources) + 启动 next server + 等就绪
+    const envDir = process.platform === "darwin" ? process.resourcesPath : path.dirname(app.getPath("exe"));
+    loadEnvFile(path.join(envDir, ".env"));
     startNextServer();
     const ok = await waitForServer();
     log(ok ? "next 服务器就绪" : "警告: next 服务器等待超时");

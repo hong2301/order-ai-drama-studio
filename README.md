@@ -54,3 +54,15 @@ npm run build    # 打包: next build(standalone) -> 套壳 electron -> 组装 r
 - 端口：Next dev / standalone 均为 3171
 - 技术：Next 16.3.1 + React 19 + antd 6 + better-sqlite3（next `serverExternalPackages` 加载原生模块；打包时 `electron-rebuild` 转为 Electron ABI）
 - Electron 壳（TS 编译后 dist/main.js）：dev 直连 3171；prod 加载 exe 同级 `.env` → 启动 `resources/next-server` standalone 服务器 → 等待就绪后 loadURL(3171)
+## macOS 开发
+
+```bash
+git clone https://github.com/hong2301/order-ai-drama-studio.git
+cd order-ai-drama-studio
+cp .env.example .env   # 填入 DOUBAO_API_KEY
+npm run dev            # 根目录一键: next + electron 窗口
+npm run build          # 自动识别平台(win 打 win / mac 打 .app)
+```
+
+- 数据目录：dev = 项目根 `data/`；mac 正式版 = `~/Library/Application Support/<App>/data`（系统惯例可写）
+- 脚本已跨平台（无 Windows 专属写法）；win 正式版仍为 exe 同级 `data/`

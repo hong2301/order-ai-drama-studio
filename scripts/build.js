@@ -66,23 +66,39 @@ if (fs.existsSync(publicSrc)) copy(publicSrc, path.join(SERVER_BUILD, 'public'))
 
 // ---------- 3) 原生模块: 无(sql.js 纯 WASM, dev/Electron ABI 同构, 无需 rebuild) ----------
 
-// ---------- 4) electron-builder 套壳打包 ----------
-sh('npx electron-builder --win', ELECTRON)
+// ---------- 4) electron-builder 套壳打包(按平台) ----------
+const plat = process.platform
+const target = plat === 'win32' ? '--win' : plat === 'darwin' ? '--mac' : '--linux'
+sh(`npx electron-builder ${target}`, ELECTRON)
+// 产物目录
+const PACK_NAME = 'AI视频工坊'
 const winUnpacked = path.join(RELEASE_BUILD, 'win-unpacked')
-if (!fs.existsSync(winUnpacked)) throw new Error('electron-builder 未输出 win-unpacked')
+const macApp = path.join(RELEASE_BUILD, 'mac', `${PACK_NAME}.app`)
+if (plat === 'win32' && !fs.existsSync(winUnpacked)) throw new Error('electron-builder 未输出 win-unpacked')
+if (plat === 'darwin' && !fs.existsSync(macApp)) throw new Error('electron-builder 未输出 .app')
 
 // ---------- 5) 组装 release/ ----------
 if (clean) rmdir(RELEASE)
 fs.mkdirSync(RELEASE, { recursive: true })
-for (const item of fs.readdirSync(winUnpacked)) {
-  const src = path.join(winUnpacked, item)
-  const dst = path.join(RELEASE, item)
-  rmdir(dst)
-  fs.cpSync(src, dst, { recursive: true })
+if (plat === 'win32') {
+  for (const item of fs.readdirSync(winUnpacked)) {
+    const src = path.join(winUnpacked, item)
+    const dst = path.join(RELEASE, item)
+    rmdir(dst)
+    fs.cpSync(src, dst, { recursive: true })
+  }
+} else if (plat === 'darwin') {
+  // mac: 整体 .app + Resources 内资源
+  const dstApp = path.join(RELEASE, `${PACK_NAME}.app`)
+  if (!fs.existsSync(dstApp)) fs.cpSync(macApp, dstApp, { recursive: true })
 }
+
+// 收集服务器资源(win: release/resources/next-server; mac: .app/Contents/Resources/next-server)
+let resRoot = path.join(RELEASE, 'resources')
+if (plat === 'darwin') resRoot = path.join(RELEASE, `${PACK_NAME}.app`, 'Contents', 'Resources')
+const nextServerDst = path.join(resRoot, 'next-server')
 fs.mkdirSync(path.join(RELEASE, 'data'), { recursive: true })
-// next standalone 服务器(electron-builder extraResources 会漏 node_modules/.next, 这里手动组装)
-const nextServerDst = path.join(RELEASE, 'resources', 'next-server')
+
 rmdir(nextServerDst)
 fs.mkdirSync(nextServerDst, { recursive: true })
 for (const item of fs.readdirSync(SERVER_BUILD)) {
