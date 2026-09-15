@@ -37,12 +37,21 @@ body {
 .conv-new:hover { background: #fafafa; }
 .conv-menu-item:hover { background: #fafafa; }
 
-/* 剧本行选中高亮(点击行勾选) */
+/* 剧本行/三库行选中高亮(点击行勾选) */
 .script-row-active {
   background: #f5f5f5;
 }
 .script-row-active td {
   background: #f5f5f5 !important;
+}
+
+/* 身份选择器下拉选中项: 黑底白字 */
+.ant-select-item-option-selected {
+  background: #111 !important;
+  color: #fff !important;
+}
+.ant-select-item-option-selected .ant-select-option-content {
+  color: #fff !important;
 }
 
 /* 可点击选中的表格(剧本库/人物/场景/产品): 仅 hover 到真实数据行时手型 */

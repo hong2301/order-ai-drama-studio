@@ -328,7 +328,7 @@ export default function InfoCardModule(props: {
           );
         }
         return (
-          <Tooltip title={v || "点击编辑"} placement="topLeft">
+          <Tooltip title={v || "点击编辑"} placement="leftTop">
             <span
               onClick={(e) => { e.stopPropagation(); setEditing({ id: rec.id, value: v || "" }); }}
               style={{ fontSize: 12, color: v ? "#888" : "#ccc", cursor: "text" }}
