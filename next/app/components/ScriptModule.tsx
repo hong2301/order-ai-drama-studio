@@ -275,20 +275,32 @@ export default function ScriptModule() {
         />
       </div>
 
-      {/* 顶部工具栏: 仅选中行时显示批量删除 */}
-      {selected.length > 0 && (
-        <div style={{ display: "flex", alignItems: "center", padding: "10px 12px", borderBottom: "1px solid #eee" }}>
-          <Popconfirm
-            title={`确认删除选中的 ${selected.length} 条剧本？`}
-            okText="删除" cancelText="取消" okButtonProps={{ danger: true }}
-            onConfirm={() => void delBatch()}
+      {/* 底部工具栏: 批量删除(常驻, 未选中置灰) + 新增(靠右) */}
+      <div style={{ borderTop: "1px solid #eee", padding: 10, display: "flex", alignItems: "center", gap: 8 }}>
+        <Popconfirm
+          title={`确认删除选中的 ${selected.length} 条剧本？`}
+          okText="删除" cancelText="取消" okButtonProps={{ danger: true }}
+          onConfirm={() => void delBatch()}
+          disabled={!selected.length}
+        >
+          <Button
+            danger
+            icon={<DeleteOutlined />}
+            disabled={!selected.length}
+            style={{ height: 40 }}
           >
-            <Button danger size="small" icon={<DeleteOutlined />}>
-              批量删除 ({selected.length})
-            </Button>
-          </Popconfirm>
-        </div>
-      )}
+            批量删除{selected.length > 0 ? ` (${selected.length})` : ""}
+          </Button>
+        </Popconfirm>
+        <div style={{ flex: 1 }} />
+        <Button
+          type="primary"
+          icon={<PlusOutlined />}
+          onClick={openAdd}
+          title="添加剧本"
+          style={{ width: 40, height: 40, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0, fontSize: 16 }}
+        />
+      </div>
 
       {/* 滚动加载列表 */}
       <div ref={scrollRef} onScroll={onScroll} style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 8 }}>
@@ -314,17 +326,6 @@ export default function ScriptModule() {
         </ConfigProvider>
         {loadingMore && <div style={{ textAlign: "center", padding: 10, fontSize: 12, color: "#bbb" }}>加载中…</div>}
         {!hasMore && items.length > 0 && <div style={{ textAlign: "center", padding: 10, fontSize: 12, color: "#ccc" }}>没有更多了</div>}
-      </div>
-
-      {/* 底部工具栏: 新增按钮(靠右) */}
-      <div style={{ borderTop: "1px solid #eee", padding: 10, display: "flex", justifyContent: "flex-end" }}>
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={openAdd}
-          title="添加剧本"
-          style={{ width: 40, height: 40, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0, fontSize: 16 }}
-        />
       </div>
 
       {/* 行右键菜单: 删除 */}
