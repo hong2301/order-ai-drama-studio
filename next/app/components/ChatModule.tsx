@@ -252,7 +252,7 @@ export default function ChatModule() {
   const listHeight = TITLE + rows * ROW + NEWBTN;
 
   return (
-    <div style={{ flex: 1, minHeight: 0, width: 460, display: "flex", flexDirection: "column", borderRadius: 12, border: "1px solid #e5e5e5", background: "#fff", overflow: "hidden" }}>
+    <div style={{ width: 460, display: "flex", flexDirection: "column", borderRadius: 12, border: "1px solid #e5e5e5", background: "#fff", overflow: "hidden" }}>
       {/* 对话区(左上角: 圆形会话列表按钮; 点击展开矩形列表) */}
       <div ref={listRef} style={{ flex: 1, minHeight: 0, overflow: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 12, position: "relative" }}>
         {/* 点击遮罩: 收起会话列表 */}
