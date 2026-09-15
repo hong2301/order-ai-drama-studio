@@ -77,10 +77,15 @@ export default function ChatModule() {
   const listRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
-  // 首次加载: 恢复上次打开的会话(无则新建一个空会话)
+  // 首次加载: 恢复会话(优先有消息的会话, 避免打开空对话)
   useEffect(() => {
     const { convs: cs, activeId } = loadConvs();
     let cur: Conv | null = cs.find((c) => c.id === activeId) || cs[cs.length - 1] || null;
+    if (cur && cur.messages.length === 0) {
+      // 上次停在空会话(历史遗留): 回退到最近有消息的会话
+      const withMsg = [...cs].filter((c) => c.messages.length > 0).sort((a, b) => b.updatedAt - a.updatedAt)[0];
+      if (withMsg) cur = withMsg;
+    }
     if (!cur) {
       cur = { id: `c_${Date.now()}`, title: "新对话", updatedAt: Date.now(), messages: [] };
       cs.push(cur);
@@ -109,8 +114,16 @@ export default function ChatModule() {
   const openConv = (id: string): void => {
     const c = convs.find((x) => x.id === id);
     if (!c) return;
+    // 切换前先把当前会话的最新消息落库(避免保存 effect 竞态丢消息)
+    if (convId && convId !== id) {
+      setConvs((prev) => {
+        const next = prev.map((x) => (x.id === convId ? { ...x, messages, updatedAt: Date.now() } : x));
+        saveConvs(next, id);
+        return next;
+      });
+    }
     setConvId(id);
-    setMessages(c.messages);
+    setMessages([...c.messages]); // 拷贝, 不共享引用
     setAtts([]);
     setListOpen(false);
   };
@@ -139,7 +152,9 @@ export default function ChatModule() {
     }
     if (id === convId) {
       const fb = rest[rest.length - 1];
-      setConvId(fb.id); setMessages(fb.messages); setAtts([]);
+      setConvId(fb.id);
+      setMessages([...fb.messages]);
+      setAtts([]);
     }
     setConvs(rest);
     saveConvs(rest, id === convId ? rest[rest.length - 1].id : convId);
@@ -208,7 +223,7 @@ export default function ChatModule() {
   return (
     <div style={{ width: 460, display: "flex", flexDirection: "column", borderRadius: 12, border: "1px solid #e5e5e5", background: "#fff", overflow: "hidden" }}>
       {/* 对话区(左上角: 圆形会话列表按钮; 点击展开矩形列表) */}
-      <div ref={listRef} style={{ flex: 1, minHeight: 0, overflow: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 12, position: "relative" }}>
+      <div ref={listRef} style={{ flex: 1, minHeight: 0, overflow: "auto", paddingTop: listOpen ? 356 : 16, paddingLeft: 16, paddingRight: 16, paddingBottom: 16, transition: "padding-top .28s cubic-bezier(.4,0,.2,1)", display: "flex", flexDirection: "column", gap: 12, position: "relative" }}>
         {/* 点击遮罩: 收起会话列表 */}
         {listOpen && <div onClick={() => setListOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 13, background: "transparent" }} />}
         {/* 圆形列表按钮 ⇄ 矩形会话列表(同一元素形变) */}

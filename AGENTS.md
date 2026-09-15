@@ -59,7 +59,6 @@
 - **UI 风格**：黑白灰极简；模块从左到右排列、无标题；head 是 logo + 刷新
 - **Electron dev**：next HMR 经 `127.0.0.1` 访问，`next.config.ts` 已配 `allowedDevOrigins`
 - `next/AGENTS.md`、`next/CLAUDE.md` 由 `next dev` 自动生成/改写，不用手改
-- 改前端后按全局规则截图到 `~/Desktop/now.png` 验证
 
 ## 常用命令
 
