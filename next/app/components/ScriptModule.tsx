@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Button, ConfigProvider, Empty, Form, Input, Modal, Popconfirm, Table, message } from "antd";
-import { DeleteOutlined, EditOutlined, PlusOutlined } from "@ant-design/icons";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Button, ConfigProvider, DatePicker, Empty, Form, Input, Modal, Popconfirm, Table, message } from "antd";
+import { DeleteOutlined, EditOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import zhCN from "antd/locale/zh_CN";
 
@@ -14,6 +14,8 @@ interface Script {
   updated_at: string;
 }
 
+const PAGE_SIZE = 10; // 每页条数(滚动到底自动加载下一页)
+
 function fmtDateTime(iso: string): string {
   try {
     const d = new Date(iso);
@@ -22,29 +24,60 @@ function fmtDateTime(iso: string): string {
   } catch { return iso; }
 }
 
-/** 剧本模块: 剧本列表(带选择列可批量删除) + 新增/编辑/删除 CRUD */
+/** 剧本模块: 筛选(名称/创建日期) + 滚动加载列表 + 选择列批量删除 + 增删改 */
 export default function ScriptModule() {
-  const [data, setData] = useState<Script[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [selected, setSelected] = useState<number[]>([]); // 勾选的行(批量删除)
+  const [items, setItems] = useState<Script[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(false);        // 首页/刷新加载
+  const [loadingMore, setLoadingMore] = useState(false); // 滚动加载中
+  const [selected, setSelected] = useState<number[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Script | null>(null);
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const r = await fetch("/api/scripts");
-      const j = (await r.json()) as unknown;
-      setData(Array.isArray(j) ? (j as Script[]) : []);
-    } catch {
-      message.error("加载剧本列表失败");
-    } finally {
-      setLoading(false);
-    }
+  // 筛选条件(ref 供滚动加载使用, 避免闭包旧值)
+  const filterRef = useRef<{ kw: string; dates: [string, string] | null }>({ kw: "", dates: null });
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const hasMore = items.length < total;
+
+  // 请求一页(append=false 刷新, true 追加)
+  const load = useCallback((p: number, append: boolean, kw: string, dates: [string, string] | null): void => {
+    if (p === 1) setLoading(true); else setLoadingMore(true);
+    const q = new URLSearchParams({ name: kw, page: String(p), page_size: String(PAGE_SIZE) });
+    if (dates) { q.set("date_from", dates[0]); q.set("date_to", dates[1]); }
+    fetch(`/api/scripts?${q.toString()}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("加载失败"))))
+      .then((j: { items?: Script[]; total?: number }) => {
+        setTotal(Number(j.total) || 0);
+        setItems((prev) => (append ? [...prev, ...(j.items || [])] : (j.items || [])));
+      })
+      .catch((e: Error) => message.error(e.message))
+      .finally(() => { setLoading(false); setLoadingMore(false); });
   }, []);
-  useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => { void load(1, false, "", null); }, [load]);
+
+  // 筛选条件变化 → 重置第一页
+  const applyFilter = (): void => {
+    const { kw, dates } = filterRef.current;
+    setPage(1);
+    void load(1, false, kw, dates);
+  };
+
+  // 滚动到底加载下一页
+  const onScroll = (): void => {
+    const el = scrollRef.current;
+    if (!el || loading || loadingMore || !hasMore) return;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 40) {
+      const next = page + 1;
+      setPage(next);
+      void load(next, true, filterRef.current.kw, filterRef.current.dates);
+    }
+  };
 
   // 新增 / 编辑共用保存
   const save = async (): Promise<void> => {
@@ -61,14 +94,14 @@ export default function ScriptModule() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: values.name, file_path: values.file_path || "" }),
       });
-      const j = (await r.json()) as { detail?: string; ok?: boolean };
+      const j = (await r.json()) as { detail?: string };
       if (!r.ok) throw new Error(j.detail || "保存失败");
       message.success(editing ? "已更新" : "已新增");
       setModalOpen(false);
       setEditing(null);
       form.resetFields();
       setSelected([]);
-      void load();
+      applyFilter();
     } catch (e) {
       message.error((e as Error).message);
     } finally {
@@ -83,7 +116,7 @@ export default function ScriptModule() {
       if (!r.ok) throw new Error("删除失败");
       message.success("已删除");
       setSelected((s) => s.filter((x) => x !== id));
-      void load();
+      applyFilter();
     } catch (e) {
       message.error((e as Error).message);
     }
@@ -98,11 +131,11 @@ export default function ScriptModule() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids: selected }),
       });
-      const j = (await r.json()) as { detail?: string; ok?: boolean; deleted?: number };
+      const j = (await r.json()) as { detail?: string; deleted?: number };
       if (!r.ok) throw new Error(j.detail || "批量删除失败");
       message.success(`已删除 ${j.deleted ?? selected.length} 条`);
       setSelected([]);
-      void load();
+      applyFilter();
     } catch (e) {
       message.error((e as Error).message);
     }
@@ -150,7 +183,35 @@ export default function ScriptModule() {
 
   return (
     <div style={{ width: 460, display: "flex", flexDirection: "column", borderRadius: 12, border: "1px solid #e5e5e5", background: "#fff", overflow: "hidden" }}>
-      {/* 顶部工具栏: 仅选中行时显示批量删除(不占空位) */}
+      {/* 筛选栏: 名称搜索 + 创建日期范围 */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderBottom: "1px solid #eee" }}>
+        <Input
+          placeholder="按名称搜索"
+          prefix={<SearchOutlined style={{ color: "#bbb" }} />}
+          allowClear
+          style={{ flex: 1 }}
+          onChange={(e) => {
+            if (debounceRef.current) clearTimeout(debounceRef.current);
+            debounceRef.current = setTimeout(() => {
+              filterRef.current = { ...filterRef.current, kw: e.target.value.trim() };
+              applyFilter();
+            }, 300);
+          }}
+        />
+        <DatePicker.RangePicker
+          size="small"
+          onChange={(vals) => {
+            if (vals && vals[0] && vals[1]) {
+              filterRef.current = { ...filterRef.current, dates: [vals[0].format("YYYY-MM-DD"), vals[1].format("YYYY-MM-DD")] };
+            } else {
+              filterRef.current = { ...filterRef.current, dates: null };
+            }
+            applyFilter();
+          }}
+        />
+      </div>
+
+      {/* 顶部工具栏: 仅选中行时显示批量删除 */}
       {selected.length > 0 && (
         <div style={{ display: "flex", alignItems: "center", padding: "10px 12px", borderBottom: "1px solid #eee" }}>
           <Popconfirm
@@ -165,16 +226,16 @@ export default function ScriptModule() {
         </div>
       )}
 
-      {/* 剧本列表(左侧选择列) */}
-      <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: 8 }}>
+      {/* 滚动加载列表 */}
+      <div ref={scrollRef} onScroll={onScroll} style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 8 }}>
         <ConfigProvider locale={zhCN}>
           <Table<Script>
             rowKey="id"
             size="small"
             loading={loading}
-            dataSource={data}
+            dataSource={items}
             columns={columns}
-            pagination={{ pageSize: 8, size: "small" }}
+            pagination={false}
             locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有剧本" style={{ padding: 24 }} /> }}
             rowSelection={{
               selectedRowKeys: selected,
@@ -182,6 +243,8 @@ export default function ScriptModule() {
             }}
           />
         </ConfigProvider>
+        {loadingMore && <div style={{ textAlign: "center", padding: 10, fontSize: 12, color: "#bbb" }}>加载中…</div>}
+        {!hasMore && items.length > 0 && <div style={{ textAlign: "center", padding: 10, fontSize: 12, color: "#ccc" }}>没有更多了</div>}
       </div>
 
       {/* 底部工具栏: 新增按钮(靠右) */}
