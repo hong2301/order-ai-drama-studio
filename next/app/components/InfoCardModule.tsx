@@ -303,6 +303,7 @@ export default function InfoCardModule(props: {
                   options={v.map((t) => ({ label: t, value: t }))}
                   onChange={(val) => void setDefaultIdentity(rec.id, v, val)}
                   style={{ width: "100%", fontSize: 12 }}
+                  popupMatchSelectWidth={false}
                 />
               </div>
             );
