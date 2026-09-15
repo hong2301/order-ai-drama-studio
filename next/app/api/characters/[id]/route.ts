@@ -15,15 +15,19 @@ export async function PUT(req: NextRequest, ctx: Ctx): Promise<Response> {
   try { b = (await req.json()) as Body; } catch {
     return Response.json({ detail: "参数解析失败" }, { status: 400 });
   }
-  const name = (b.name || "").trim();
-  if (!name) return Response.json({ detail: "名称不能为空" }, { status: 400 });
   const db = await getDb();
-  if (!queryOne(db, "SELECT id FROM characters WHERE id=?", [nid])) {
+  const exist = queryOne(db, "SELECT * FROM characters WHERE id=?", [nid]);
+  if (!exist) {
     return Response.json({ detail: "记录不存在" }, { status: 404 });
   }
+  // 部分更新: 未传的字段保留原值(支持行内只改提示词)
+  const finalName = (b.name ?? "").toString().trim() || String(exist.name || "");
+  const finalIdentity = b.identity ? JSON.stringify(b.identity) : String(exist.identity || "[]");
+  const finalPrompt = b.prompt !== undefined ? String(b.prompt ?? "").trim() : String(exist.prompt || "");
+  const finalIds = b.image_ids ? JSON.stringify(b.image_ids) : String(exist.image_ids || "[]");
   db.run(
     "UPDATE characters SET name=?, identity=?, prompt=?, image_ids=?, updated_at=? WHERE id=?",
-    [name, JSON.stringify(b.identity || []), (b.prompt || "").trim(), JSON.stringify(b.image_ids || []), new Date().toISOString(), nid],
+    [finalName, finalIdentity, finalPrompt, finalIds, new Date().toISOString(), nid],
   );
   await persist();
   return Response.json({ ok: true });

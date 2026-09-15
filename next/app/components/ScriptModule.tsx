@@ -225,16 +225,16 @@ export default function ScriptModule() {
       if (next.includes(id)) {
         const rec = items.find((i) => i.id === id);
         if (rec) {
-          window.dispatchEvent(new CustomEvent("library-link", {
-            detail: {
-              chars: parseIds(rec.character_ids),
-              scenes: parseIds(rec.scene_ids),
-              prods: parseIds(rec.product_ids),
-              resolution: rec.resolution || "",
-              duration: rec.duration || "",
-              ratio: rec.ratio || "",
-            },
-          }));
+          // 异步派发, 脱离 React 渲染事件栈(避免"渲染期间更新其他组件"警告)
+          const detail = {
+            chars: parseIds(rec.character_ids),
+            scenes: parseIds(rec.scene_ids),
+            prods: parseIds(rec.product_ids),
+            resolution: rec.resolution || "",
+            duration: rec.duration || "",
+            ratio: rec.ratio || "",
+          };
+          setTimeout(() => window.dispatchEvent(new CustomEvent("library-link", { detail })), 0);
         }
       }
       return next;

@@ -62,6 +62,8 @@ export default function InfoCardModule(props: {
   const importFilesRef = useRef<HTMLInputElement | null>(null);   // 选择多个文件
   const importFolderRef = useRef<HTMLInputElement | null>(null);  // 选择文件夹(webkitdirectory)
   const [pasteContent, setPasteContent] = useState("");
+  const [newIdTag, setNewIdTag] = useState(""); // 手动添加的身份标签输入
+  const [editing, setEditing] = useState<{ id: number; value: string } | null>(null); // 提示词行内编辑
   const linkRef = useRef<number[] | null>(null); // 待置顶的联动 id
   const [form] = Form.useForm();
 
@@ -161,6 +163,32 @@ export default function InfoCardModule(props: {
   }, [api, load, items]);
 
   // 新增保存(手动填写)
+  // 手动添加身份标签(追加到 Form 的 identity 数组)
+  const addIdTag = (): void => {
+    const t = newIdTag.trim();
+    if (!t) return;
+    const cur = (form.getFieldValue("identity") as string[] | undefined) || [];
+    if (!cur.includes(t)) form.setFieldsValue({ identity: [...cur, t] });
+    setNewIdTag("");
+  };
+
+  // 提示词行内编辑保存(部分更新 PUT, 其他字段保留)
+  const savePrompt = async (id: number, value: string): Promise<void> => {
+    setEditing(null);
+    try {
+      const r = await fetch(`${api}/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: value }),
+      });
+      const j = (await r.json()) as { detail?: string; ok?: boolean };
+      if (!r.ok) throw new Error(j.detail || "保存失败");
+      setItems((prev) => prev.map((x) => (x.id === id ? { ...x, prompt: value } : x)));
+    } catch (e) {
+      message.error((e as Error).message);
+    }
+  };
+
   const save = async (): Promise<void> => {
     let values: { name: string; identity?: string[]; prompt?: string };
     try { values = await form.validateFields(); } catch { return; }
@@ -248,7 +276,14 @@ export default function InfoCardModule(props: {
           render: (v: string[]) => (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
               {Array.isArray(v) && v.length > 0
-                ? v.slice(0, 3).map((t) => <Tag key={t} style={{ fontSize: 11, margin: 0 }}>{t}</Tag>)
+                ? v.slice(0, 3).map((t, idx) => (
+                    <Tag
+                      key={t}
+                      style={{ fontSize: 11, margin: 0, ...(idx === 0 ? { background: "#111", color: "#fff", borderColor: "#111" } : {}) }}
+                    >
+                      {t}
+                    </Tag>
+                  ))
                 : <span style={{ fontSize: 12, color: "#ccc" }}>—</span>}
             </div>
           ),
@@ -257,10 +292,31 @@ export default function InfoCardModule(props: {
     {
       title: "提示词", dataIndex: "prompt", key: "prompt",
       ellipsis: true,
-      render: (v: string) =>
-        v
-          ? <Tooltip title={v} placement="topLeft"><span style={{ fontSize: 12, color: "#888" }}>{v}</span></Tooltip>
-          : <span style={{ fontSize: 12, color: "#ccc" }}>—</span>,
+      render: (v: string, rec) => {
+        if (editing?.id === rec.id) {
+          return (
+            <Input
+              size="small"
+              defaultValue={editing.value}
+              autoFocus
+              onPressEnter={(e) => void savePrompt(rec.id, (e.target as HTMLInputElement).value)}
+              onBlur={(e) => void savePrompt(rec.id, e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Escape") setEditing(null); }}
+              style={{ width: "100%", fontSize: 12 }}
+            />
+          );
+        }
+        return (
+          <Tooltip title={v || "点击编辑"} placement="topLeft">
+            <span
+              onClick={(e) => { e.stopPropagation(); setEditing({ id: rec.id, value: v || "" }); }}
+              style={{ fontSize: 12, color: v ? "#888" : "#ccc", cursor: "text" }}
+            >
+              {v || "—"}
+            </span>
+          </Tooltip>
+        );
+      },
     },
   ];
 
@@ -354,7 +410,7 @@ export default function InfoCardModule(props: {
       )}
 
       {/* 新增弹窗: 手动填写 / 粘贴提示词 / 上传文件或文件夹 */}
-      <Modal open={modalOpen} title={`新增${title}`} onCancel={() => { setModalOpen(false); setPickedImgs([]); setPasteContent(""); form.resetFields(); }} footer={null} width={460} destroyOnHidden>
+      <Modal open={modalOpen} title={`新增${title}`} onCancel={() => { setModalOpen(false); setPickedImgs([]); setPasteContent(""); setNewIdTag(""); form.resetFields(); }} footer={null} width={460} destroyOnHidden>
         <Tabs
           size="small"
           items={[
@@ -370,6 +426,18 @@ export default function InfoCardModule(props: {
                     {showIdentity && (
                       <Form.Item name="identity" label={identityLabel}>
                         <Select mode="tags" placeholder={identityPlaceholder} open={false} suffixIcon={null} style={{ width: "100%" }} tokenSeparators={[",", "，"]} />
+                        {/* 底部显式添加入口 */}
+                        <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                          <Input
+                            size="small"
+                            value={newIdTag}
+                            onChange={(e) => setNewIdTag(e.target.value)}
+                            onPressEnter={() => addIdTag()}
+                            placeholder={`输入${identityLabel}后点「添加」`}
+                            style={{ flex: 1 }}
+                          />
+                          <Button size="small" onClick={addIdTag}>添加</Button>
+                        </div>
                       </Form.Item>
                     )}
                     <Form.Item name="prompt" label="提示词">
