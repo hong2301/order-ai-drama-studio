@@ -252,7 +252,7 @@ export default function ChatModule() {
   const listHeight = TITLE + rows * ROW + NEWBTN;
 
   return (
-    <div style={{ width: 460, display: "flex", flexDirection: "column", borderRadius: 12, border: "1px solid #e5e5e5", background: "#fff", overflow: "hidden" }}>
+    <div style={{ position: "relative", width: 460, display: "flex", flexDirection: "column", borderRadius: 12, border: "1px solid #e5e5e5", background: "#fff", overflow: "hidden" }}>
       {/* 左上角浮动层: 会话列表按钮/面板(固定在模块左上角, 不随对话内容滚动) */}
         {/* 点击遮罩: 收起会话列表 */}
         {listOpen && <div onClick={() => setListOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 13, background: "transparent" }} />}
