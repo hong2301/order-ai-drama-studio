@@ -38,11 +38,37 @@ def render_source(src: str) -> Image.Image:
     return im
 
 
+def content_bbox(img: Image.Image):
+    """深色(非白/透明)内容边界与重心"""
+    px = img.load(); w, h = img.size
+    minx, miny, maxx, maxy = w, h, 0, 0
+    sum_x = sum_y = n = 0
+    for y in range(h):
+        for x in range(w):
+            r, g, b, a = px[x, y]
+            if a > 10 and (r < 240 or g < 240 or b < 240):
+                minx = min(minx, x); maxx = max(maxx, x)
+                miny = min(miny, y); maxy = max(maxy, y)
+                sum_x += x; sum_y += y; n += 1
+    return (minx, miny, maxx, maxy), (sum_x / n, sum_y / n)
+
+
+def center_crop_to_content(src: Image.Image, tol: int = 24) -> Image.Image:
+    """把内容(深色图标)裁切到画布中央: 找到内容 bbox, 加 tol 边距, 输出居中的方形画布"""
+    (minx, miny, maxx, maxy), _ = content_bbox(src)
+    cw, ch = maxx - minx + 1, maxy - miny + 1
+    side = max(cw, ch) + tol * 2
+    canvas = Image.new("RGBA", (side, side), (0, 0, 0, 0))
+    canvas.paste(src.crop((minx, miny, maxx + 1, maxy + 1)), ((side - cw) // 2, (side - ch) // 2))
+    return canvas
+
+
 def rounded_card(src_img: Image.Image, canvas: int, scale: float, radius_ratio: float) -> Image.Image:
-    """居中缩放 + 圆角遮罩, 输出带透明边距的画布"""
+    """居中缩放 + 圆角遮罩, 输出带透明边距的画布(先裁内容居中, 再缩放)"""
+    centered = center_crop_to_content(src_img)
     out = Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0))
     size = max(8, int(canvas * scale))
-    thumb = src_img.resize((size, size), Image.LANCZOS)
+    thumb = centered.resize((size, size), Image.LANCZOS)
     offset = (canvas - size) // 2
     mask = Image.new("L", (size, size), 0)
     ImageDraw.Draw(mask).rounded_rectangle(

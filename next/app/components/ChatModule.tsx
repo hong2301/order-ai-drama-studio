@@ -253,8 +253,7 @@ export default function ChatModule() {
 
   return (
     <div style={{ width: 460, display: "flex", flexDirection: "column", borderRadius: 12, border: "1px solid #e5e5e5", background: "#fff", overflow: "hidden" }}>
-      {/* 对话区(左上角: 圆形会话列表按钮; 点击展开矩形列表) */}
-      <div ref={listRef} style={{ flex: 1, minHeight: 0, overflow: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 12, position: "relative" }}>
+      {/* 左上角浮动层: 会话列表按钮/面板(固定在模块左上角, 不随对话内容滚动) */}
         {/* 点击遮罩: 收起会话列表 */}
         {listOpen && <div onClick={() => setListOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 13, background: "transparent" }} />}
         {/* 圆形列表按钮 ⇄ 矩形会话列表(同一元素形变) */}
@@ -307,6 +306,8 @@ export default function ChatModule() {
             </div>
           </div>
         </div>
+      {/* 对话区 */}
+      <div ref={listRef} style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "52px 16px 16px", display: "flex", flexDirection: "column", gap: 12 }}>
         {messages.length === 0 && !sending && (
           <div style={{ color: "#aaa", fontSize: 13, textAlign: "center", marginTop: 48 }}>
             <div style={{ fontSize: 30, marginBottom: 10 }}>🎬</div>
