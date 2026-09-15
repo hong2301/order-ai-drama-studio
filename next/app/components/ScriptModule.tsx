@@ -284,16 +284,16 @@ export default function ScriptModule() {
       },
     },
     {
-      title: "文件路径", dataIndex: "file_path", key: "file_path", width: 150,
+      title: "提示词", dataIndex: "content", key: "content",
       ellipsis: true,
-      render: (v: string) =>
-        v
-          ? <span style={{ fontSize: 12, color: "#888" }} title={v}>{filePathOf(v)}</span>
-          : <span style={{ fontSize: 12, color: "#ccc" }}>—</span>,
-    },
-    {
-      title: "创建时间", dataIndex: "created_at", key: "created_at", width: 142,
-      render: (v: string) => <span style={{ fontSize: 12, color: "#999" }}>{fmtDateTime(v)}</span>,
+      render: (v: string) => {
+        const text = (v || "").replace(/<[^>]*>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
+        return (
+          <Tooltip title={text || "无"} placement="leftTop">
+            <span style={{ fontSize: 12, color: text ? "#888" : "#ccc" }}>{text || "—"}</span>
+          </Tooltip>
+        );
+      },
     },
   ];
 
