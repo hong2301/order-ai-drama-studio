@@ -172,6 +172,24 @@ export default function InfoCardModule(props: {
     setNewIdTag("");
   };
 
+  // 切换默认身份: 选中项移到数组首位并入库
+  const setDefaultIdentity = async (id: number, arr: string[], val: string): Promise<void> => {
+    if (!val) return;
+    const next = [val, ...arr.filter((t) => t !== val)];
+    try {
+      const r = await fetch(`${api}/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identity: next }),
+      });
+      const j = (await r.json()) as { detail?: string; ok?: boolean };
+      if (!r.ok) throw new Error(j.detail || "保存失败");
+      setItems((prev) => prev.map((x) => (x.id === id ? { ...x, identity: next } : x)));
+    } catch (e) {
+      message.error((e as Error).message);
+    }
+  };
+
   // 提示词行内编辑保存(部分更新 PUT, 其他字段保留)
   const savePrompt = async (id: number, value: string): Promise<void> => {
     setEditing(null);
@@ -272,21 +290,23 @@ export default function InfoCardModule(props: {
     },
     ...(showIdentity
       ? [{
-          title: identityLabel, dataIndex: "identity", key: "identity",
-          render: (v: string[]) => (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
-              {Array.isArray(v) && v.length > 0
-                ? v.slice(0, 3).map((t, idx) => (
-                    <Tag
-                      key={t}
-                      style={{ fontSize: 11, margin: 0, ...(idx === 0 ? { background: "#111", color: "#fff", borderColor: "#111" } : {}) }}
-                    >
-                      {t}
-                    </Tag>
-                  ))
-                : <span style={{ fontSize: 12, color: "#ccc" }}>—</span>}
-            </div>
-          ),
+          title: identityLabel, dataIndex: "identity", key: "identity", width: 110,
+          render: (v: string[], rec) => {
+            if (!Array.isArray(v) || !v.length) return <span style={{ fontSize: 12, color: "#ccc" }}>—</span>;
+            // 下拉选择器: 选中的身份(默认)存库并放到数组首位
+            return (
+              <div onClick={(e) => e.stopPropagation()}>
+                <Select
+                  size="small"
+                  variant="borderless"
+                  value={v[0]}
+                  options={v.map((t) => ({ label: t, value: t }))}
+                  onChange={(val) => void setDefaultIdentity(rec.id, v, val)}
+                  style={{ width: "100%", fontSize: 12 }}
+                />
+              </div>
+            );
+          },
         } as ColumnsType<CardItem>[number]]
       : []),
     {
