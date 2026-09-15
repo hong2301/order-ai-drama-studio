@@ -3,6 +3,7 @@
 import { Button } from "antd";
 import { ReloadOutlined, VideoCameraOutlined } from "@ant-design/icons";
 import ChatModule from "./components/ChatModule";
+import ScriptModule from "./components/ScriptModule";
 
 export default function Home() {
   return (
@@ -29,6 +30,7 @@ export default function Home() {
       {/* body: 模块从左到右排列, 自动填充剩余高度(无 tail) */}
       <div style={{ flex: 1, minHeight: 0, padding: 16, display: "flex", gap: 16, alignItems: "stretch" }}>
         <ChatModule />
+        <ScriptModule />
         {/* 后续模块在此从左到右追加 */}
       </div>
     </div>

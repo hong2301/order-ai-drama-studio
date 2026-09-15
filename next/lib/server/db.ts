@@ -98,6 +98,16 @@ function initSchema(db: Database): void {
     db.run("INSERT INTO settings(key,value) VALUES(?,?)", ["db_path", path.join(dataDir(), "drama.db")]);
     void persist();
   }
+  // 剧本表: 名称 + 文件路径 + 时间戳
+  db.run(`
+    CREATE TABLE IF NOT EXISTS scripts (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      name       TEXT NOT NULL,
+      file_path  TEXT DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
 }
 
 /** 读取配置项 */
