@@ -107,6 +107,54 @@ async function execReadFile(args: Record<string, unknown>): Promise<string> {
   return text.slice(0, 20000);
 }
 
+/** 资料库(人物/场景/产品)写库工具 — 与 add_script 同级 */
+const LIB_META: Record<string, { table: string; typeName: string; label: string }> = {
+  add_character: { table: "characters", typeName: "人物", label: "身份" },
+  add_scene:     { table: "scenes",     typeName: "场景", label: "类型" },
+  add_product:   { table: "products",   typeName: "产品", label: "品类" },
+};
+
+function buildLibTool(name: string): ToolDef {
+  const m = LIB_META[name];
+  return {
+    name,
+    description: `把用户提供的内容保存为一条${m.typeName}记录到资料库。**仅在用户明确要求「加入${m.typeName}库/保存到${m.typeName}库/记录${m.typeName}」时调用**；只是谈论/描述时绝不要调用。内容来自附件文件时可先 read_file 读取再整理。`,
+    parameters: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: `${m.typeName}名称` },
+        identity: { type: "array", items: { type: "string" }, description: `${m.label}标签数组(如人物为 主角/婆婆)` },
+        prompt: { type: "string", description: `${m.typeName}提示词/描述, 从用户内容中整理` },
+      },
+      required: ["name", "prompt"],
+    },
+  };
+}
+
+const LIB_TOOLS: ToolDef[] = Object.keys(LIB_META).map((n) => buildLibTool(n));
+
+/** 写入资料库表(表名取自白名单, 防注入) */
+async function execLibAdd(table: string, args: Record<string, unknown>): Promise<string> {
+  const name = String(args.name ?? "").trim();
+  const prompt = String(args.prompt ?? "").trim();
+  if (!name) return JSON.stringify({ ok: false, detail: "名称不能为空" });
+  if (!prompt) return JSON.stringify({ ok: false, detail: "提示词不能为空" });
+  const identity = Array.isArray(args.identity) ? args.identity.map((s) => String(s).trim()).filter(Boolean) : [];
+  const now = new Date().toISOString();
+  try {
+    const db = await getDb();
+    db.run(
+      `INSERT INTO ${table}(name, identity, prompt, image_ids, created_at, updated_at) VALUES(?,?,?,?,?,?)`,
+      [name, JSON.stringify(identity), prompt, "[]", now, now],
+    );
+    const id = Number(db.exec("SELECT last_insert_rowid()")[0]?.values[0]?.[0] ?? 0);
+    await persist();
+    return JSON.stringify({ ok: true, id, name });
+  } catch (e) {
+    return JSON.stringify({ ok: false, detail: (e as Error).message });
+  }
+}
+
 const READ_FILE_TOOL: ToolDef = {
   name: "read_file",
   description: "读取用户上传的附件文件(txt/docx)内容。用户要求「看一下文件/读文件/文件里写了什么/帮我看这个文件」时调用。注意: 读取内容不等于保存, 只有用户明确要求加入剧本库时才用 add_script。",
@@ -158,8 +206,15 @@ export async function POST(req: NextRequest): Promise<Response> {
   try {
     let scriptsChanged = false;
     const reply = await chat(apiKey, modelId, history, {
-      tools: [ADD_SCRIPT_TOOL, READ_FILE_TOOL],
+      tools: [ADD_SCRIPT_TOOL, READ_FILE_TOOL, ...LIB_TOOLS],
       onToolCall: async (name, args) => {
+        const lib = LIB_META[name];
+        if (lib) {
+          const r = await execLibAdd(lib.table, args);
+          const parsed = JSON.parse(r) as { ok?: boolean };
+          if (parsed.ok) scriptsChanged = true;
+          return r;
+        }
         if (name === "add_script") {
           // 工具未传 file_path 且内容来自附件时, 用附件文件路径驼底
           if (!String(args.file_path ?? "").trim() && attachFiles.length) {
