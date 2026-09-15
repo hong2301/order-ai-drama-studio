@@ -207,7 +207,7 @@ export default function ChatModule() {
       const r = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, images }),
+        body: JSON.stringify({ message: text, images, messages }),
       });
       const j = (await r.json()) as { detail?: string; reply?: string };
       if (!r.ok) throw new Error(j.detail || `HTTP ${r.status}`);
