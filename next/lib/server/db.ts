@@ -114,6 +114,46 @@ function initSchema(db: Database): void {
     const cols = db.exec("PRAGMA table_info(scripts)")[0]?.values.map((r) => r[1]);
     if (cols && !cols.includes("content")) db.run("ALTER TABLE scripts ADD COLUMN content TEXT DEFAULT ''");
   } catch { /* ignore */ }
+
+  // 图片表: 人物/场景等模块共用图片资源
+  db.run(`
+    CREATE TABLE IF NOT EXISTS images (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      path        TEXT NOT NULL,
+      name        TEXT DEFAULT '',
+      description TEXT DEFAULT '',
+      created_at  TEXT NOT NULL,
+      updated_at  TEXT NOT NULL
+    );
+  `);
+
+  // 人物表: 名称 + 身份(JSON数组) + 提示词 + 图片ids(JSON数组, 关联 images 表)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS characters (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      name       TEXT NOT NULL,
+      identity   TEXT DEFAULT '[]',
+      prompt     TEXT DEFAULT '',
+      image_ids  TEXT DEFAULT '[]',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
+  // 场景表/产品表: 与人物同构(保存类型标签用 identity 列名统一, JSON数组)
+  for (const t of ["scenes", "products"]) {
+    db.run(`
+      CREATE TABLE IF NOT EXISTS ${t} (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        name       TEXT NOT NULL,
+        identity   TEXT DEFAULT '[]',
+        prompt     TEXT DEFAULT '',
+        image_ids  TEXT DEFAULT '[]',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+  }
 }
 
 /** 读取配置项 */
