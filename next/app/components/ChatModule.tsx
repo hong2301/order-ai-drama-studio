@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { App as AntApp, Button, Input, Modal } from "antd";
-import { FileOutlined, FilePdfOutlined, FileTextOutlined, FileWordOutlined, PaperClipOutlined, SendOutlined, UnorderedListOutlined } from "@ant-design/icons";
+import { FileOutlined, FilePdfOutlined, FileTextOutlined, FileWordOutlined, LoadingOutlined, PaperClipOutlined, SendOutlined, UnorderedListOutlined } from "@ant-design/icons";
 
 interface Msg { role: "user" | "assistant"; content: string; images?: string[] }
 interface Att { name: string; url: string }
@@ -448,12 +448,15 @@ export default function ChatModule() {
               type="primary"
               shape="circle"
               size="large"
-              loading={sending}
               disabled={!input.trim()}
               onClick={send}
               style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0 }}
             >
-              <SendOutlined style={{ display: "block", lineHeight: 0 }} />
+              {sending ? (
+                <LoadingOutlined spin style={{ display: "block", lineHeight: 0, color: "#fff", fontSize: 15 }} />
+              ) : (
+                <SendOutlined style={{ display: "block", lineHeight: 0 }} />
+              )}
             </Button>
           </div>
       </div>
