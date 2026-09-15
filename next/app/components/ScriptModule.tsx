@@ -184,8 +184,8 @@ export default function ScriptModule() {
         </ConfigProvider>
       </div>
 
-      {/* 底部: 新增按钮 */}
-      <div style={{ borderTop: "1px solid #eee", padding: 10, display: "flex", justifyContent: "center" }}>
+      {/* 底部: 新增按钮(靠右) */}
+      <div style={{ borderTop: "1px solid #eee", padding: 10, display: "flex", justifyContent: "flex-end" }}>
         <Button
           type="primary"
           icon={<PlusOutlined />}
