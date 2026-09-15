@@ -169,10 +169,13 @@ export default function InfoCardModule(props: {
   };
 
   const openAdd = (): void => {
-    form.resetFields();
     setPickedImgs([]);
     setModalOpen(true);
   };
+  // Modal 渲染完成后重置表单(避免实例未连接时 resetFields 触发警告)
+  useEffect(() => {
+    if (modalOpen) form.resetFields();
+  }, [modalOpen, form]);
 
   const columns: ColumnsType<CardItem> = [
     {
