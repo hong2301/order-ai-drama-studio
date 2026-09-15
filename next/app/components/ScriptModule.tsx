@@ -199,7 +199,6 @@ export default function ScriptModule() {
           }}
         />
         <DatePicker.RangePicker
-          size="small"
           onChange={(vals) => {
             if (vals && vals[0] && vals[1]) {
               filterRef.current = { ...filterRef.current, dates: [vals[0].format("YYYY-MM-DD"), vals[1].format("YYYY-MM-DD")] };
