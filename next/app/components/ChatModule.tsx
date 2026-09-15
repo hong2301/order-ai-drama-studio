@@ -2,26 +2,59 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button, Input, Modal, message } from "antd";
-import { PaperClipOutlined, SendOutlined, DeleteOutlined } from "@ant-design/icons";
+import { PaperClipOutlined, SendOutlined, UnorderedListOutlined } from "@ant-design/icons";
 
 interface Msg { role: "user" | "assistant"; content: string; images?: string[] }
 interface Att { name: string; url: string }
+interface Conv { id: string; title: string; updatedAt: number; messages: Msg[] }
 
 const MAX_ATTACH = 9; // 最多 9 个附件
-const HISTORY_KEY = "aivs:chat:v1"; // 对话历史 localStorage 键
+const LEGACY_KEY = "aivs:chat:v1"; // 旧单会话历史(迁移用)
+const CONVS_KEY = "aivs:convs:v1"; // 多会话列表(标题/时间/消息)
 
-/** 恢复/保存对话历史(最近一次聊天, 重启应用不丢失) */
-function loadHistory(): Msg[] {
-  try {
-    const raw = localStorage.getItem(HISTORY_KEY);
-    if (!raw) return [];
-    const arr = JSON.parse(raw) as unknown;
-    if (!Array.isArray(arr)) return [];
-    return arr.filter((m): m is Msg => !!m && (m as Msg).role === "user" || ((m as Msg).role === "assistant" && typeof (m as Msg).content === "string"));
-  } catch { return []; }
+/** 相对/绝对时间显示 */
+function fmtTime(ts: number): string {
+  const d = new Date(ts);
+  const now = new Date();
+  const diff = now.getTime() - ts;
+  if (diff < 60_000) return "刚刚";
+  if (diff < 3600_000) return `${Math.floor(diff / 60_000)}分钟前`;
+  if (diff < 86400_000) return `${Math.floor(diff / 3600_000)}小时前`;
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  if (d.getFullYear() === now.getFullYear()) return `${d.getMonth() + 1}月${d.getDate()}日 ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
 }
-function saveHistory(msgs: Msg[]): void {
-  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(msgs.slice(-50))); } catch { /* ignore */ }
+
+/** 会话标题: 取第一条用户消息前 18 字(无消息时"新对话") */
+function deriveTitle(msgs: Msg[]): string {
+  const first = msgs.find((m) => m.role === "user");
+  const t = (first?.content || "").trim().replace(/\s+/g, " ");
+  return t ? (t.length > 18 ? `${t.slice(0, 18)}…` : t) : "新对话";
+}
+
+/** 加载全部会话(含旧单会话历史迁移) */
+function loadConvs(): { convs: Conv[]; activeId: string | null } {
+  try {
+    const raw = localStorage.getItem(CONVS_KEY);
+    if (raw) {
+      const d = JSON.parse(raw) as { convs?: Conv[]; activeId?: string | null };
+      if (d && Array.isArray(d.convs)) return { convs: d.convs, activeId: d.activeId ?? null };
+    }
+    const old = localStorage.getItem(LEGACY_KEY);
+    if (old) {
+      const arr = JSON.parse(old) as unknown;
+      if (Array.isArray(arr) && arr.length) {
+        const msgs = arr.filter((m): m is Msg => !!m && ((m as Msg).role === "user" || (m as Msg).role === "assistant") && typeof (m as Msg).content === "string");
+        const id = `c_${Date.now()}_old`;
+        localStorage.removeItem(LEGACY_KEY);
+        return { convs: [{ id, title: deriveTitle(msgs), updatedAt: Date.now(), messages: msgs.slice(-50) }], activeId: id };
+      }
+    }
+  } catch { /* ignore */ }
+  return { convs: [], activeId: null };
+}
+function saveConvs(convs: Conv[], activeId: string | null): void {
+  try { localStorage.setItem(CONVS_KEY, JSON.stringify({ convs: convs.slice(-30), activeId })); } catch { /* ignore */ }
 }
 
 /** AI 对话模块(第一个模块, 无标题): 对话区 + 底部一体输入框(附件/发送) */
@@ -33,18 +66,63 @@ export default function ChatModule() {
   const [preview, setPreview] = useState<Att | null>(null); // 图片点击预览(带文件名)
   const [uploading, setUploading] = useState(0);
   const [loading, setLoading] = useState(true); // 历史是否已恢复(避免首屏闪历史)
+  const [convs, setConvs] = useState<Conv[]>([]);       // 全部会话
+  const [convId, setConvId] = useState<string | null>(null); // 当前会话 id
+  const [listOpen, setListOpen] = useState(false);      // 会话列表面板是否展开
   const listRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
-  // 首次加载: 恢复最近一次聊天
+  // 首次加载: 恢复上次打开的会话(无则新建一个空会话)
   useEffect(() => {
-    setMessages(loadHistory());
+    const { convs: cs, activeId } = loadConvs();
+    let cur: Conv | null = cs.find((c) => c.id === activeId) || cs[cs.length - 1] || null;
+    if (!cur) {
+      cur = { id: `c_${Date.now()}`, title: "新对话", updatedAt: Date.now(), messages: [] };
+      cs.push(cur);
+    }
+    setConvs(cs);
+    setConvId(cur.id);
+    setMessages(cur.messages);
     setLoading(false);
   }, []);
-  // 消息变化时自动保存(最多保留 50 条)
+
+  // 当前会话消息变化: 自动保存(标题/时间/内容), 最多保留 30 个会话
   useEffect(() => {
-    if (!loading) saveHistory(messages);
-  }, [messages, loading]);
+    if (loading || !convId) return;
+    setConvs((prev) => {
+      const next = prev.map((c) =>
+        c.id === convId
+          ? { ...c, messages, updatedAt: Date.now(), title: c.title !== "新对话" ? c.title : deriveTitle(messages) }
+          : c,
+      );
+      saveConvs(next, convId);
+      return next;
+    });
+  }, [messages, loading, convId]);
+
+  // 切换到某个历史会话
+  const openConv = (id: string): void => {
+    const c = convs.find((x) => x.id === id);
+    if (!c) return;
+    setConvId(id);
+    setMessages(c.messages);
+    setAtts([]);
+    setListOpen(false);
+  };
+  // 新建会话
+  const newConv = (): void => {
+    const id = `c_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const c: Conv = { id, title: "新对话", updatedAt: Date.now(), messages: [] };
+    setConvs((prev) => {
+      const next = [...prev, c];
+      saveConvs(next, id);
+      return next;
+    });
+    setConvId(id);
+    setMessages([]);
+    setAtts([]);
+    setListOpen(false);
+  };
 
   useEffect(() => {
     const el = listRef.current;
@@ -108,17 +186,38 @@ export default function ChatModule() {
 
   return (
     <div style={{ width: 460, display: "flex", flexDirection: "column", borderRadius: 12, border: "1px solid #e5e5e5", background: "#fff", overflow: "hidden" }}>
-      {/* 对话区(右上角小工具: 有历史时显示清空按钮) */}
+      {/* 对话区(左上角: 圆形会话列表按钮; 点击展开矩形列表) */}
       <div ref={listRef} style={{ flex: 1, minHeight: 0, overflow: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 12, position: "relative" }}>
-        {messages.length > 0 && !sending && (
-          <Button
-            size="small"
-            type="text"
-            icon={<DeleteOutlined style={{ fontSize: 13 }} />}
-            onClick={() => { setMessages([]); setAtts([]); }}
-            title="清空对话历史"
-            style={{ position: "absolute", top: 8, right: 8, color: "#bbb" }}
-          />
+        {/* 点击遮罩: 关闭列表面板 */}
+        {listOpen && <div onClick={() => setListOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 13, background: "transparent" }} />}
+        {/* 圆形列表按钮 */}
+        <Button
+          shape="circle"
+          size="small"
+          icon={<UnorderedListOutlined style={{ fontSize: 14 }} />}
+          onClick={() => setListOpen((o) => !o)}
+          title="对话列表"
+          style={{ position: "absolute", top: 8, left: 8, zIndex: 15, color: "#888", border: "1px solid #e5e5e5" }}
+        />
+        {/* 矩形会话列表: 标题 + 上次对话时间 */}
+        {listOpen && (
+          <div style={{ position: "absolute", top: 44, left: 8, width: 320, maxHeight: 340, overflow: "auto", background: "#fff", borderRadius: 10, boxShadow: "0 4px 20px rgba(0,0,0,0.12)", border: "1px solid #eee", zIndex: 20 }}>
+            <div style={{ padding: "8px 12px", fontSize: 12, color: "#999", borderBottom: "1px solid #f5f5f5" }}>对话列表</div>
+            {convs.length === 0 && <div style={{ padding: 14, fontSize: 12, color: "#bbb", textAlign: "center" }}>暂无对话</div>}
+            {[...convs].sort((a, b) => b.updatedAt - a.updatedAt).map((c) => (
+              <div
+                key={c.id}
+                onClick={() => openConv(c.id)}
+                style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "9px 12px", cursor: "pointer", background: c.id === convId ? "#f5f5f5" : "#fff", borderBottom: "1px solid #f7f7f7" }}
+              >
+                <span style={{ flex: 1, fontSize: 13, color: "#111", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title || "新对话"}</span>
+                <span style={{ flexShrink: 0, fontSize: 11, color: "#bbb" }}>{fmtTime(c.updatedAt)}</span>
+              </div>
+            ))}
+            <div onClick={newConv} style={{ padding: "10px 12px", textAlign: "center", fontSize: 13, color: "#111", cursor: "pointer", borderTop: "1px solid #f5f5f5", userSelect: "none" }}>
+              ＋ 新对话
+            </div>
+          </div>
         )}
         {messages.length === 0 && !sending && (
           <div style={{ color: "#aaa", fontSize: 13, textAlign: "center", marginTop: 48 }}>
