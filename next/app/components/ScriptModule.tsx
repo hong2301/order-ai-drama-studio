@@ -1,11 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Button, Form, Input, Modal, Popconfirm, Table, message } from "antd";
+import { Button, ConfigProvider, Empty, Form, Input, Modal, Popconfirm, Table, message } from "antd";
 import { DeleteOutlined, EditOutlined, PlusOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import zhCN from "antd/locale/zh_CN";
-import { ConfigProvider } from "antd";
 
 interface Script {
   id: number;
@@ -151,9 +150,9 @@ export default function ScriptModule() {
 
   return (
     <div style={{ width: 460, display: "flex", flexDirection: "column", borderRadius: 12, border: "1px solid #e5e5e5", background: "#fff", overflow: "hidden" }}>
-      {/* 顶部工具栏: 批量删除(选中时出现) + 新增 */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderBottom: "1px solid #eee" }}>
-        {selected.length > 0 ? (
+      {/* 顶部工具栏: 批量删除(选中时出现) */}
+      <div style={{ display: "flex", alignItems: "center", padding: "10px 12px", borderBottom: "1px solid #eee", minHeight: 40 }}>
+        {selected.length > 0 && (
           <Popconfirm
             title={`确认删除选中的 ${selected.length} 条剧本？`}
             okText="删除" cancelText="取消" okButtonProps={{ danger: true }}
@@ -163,9 +162,7 @@ export default function ScriptModule() {
               批量删除 ({selected.length})
             </Button>
           </Popconfirm>
-        ) : null}
-        <div style={{ flex: 1 }} />
-        <Button type="primary" icon={<PlusOutlined />} onClick={openAdd} title="新增剧本" />
+        )}
       </div>
 
       {/* 剧本列表(左侧选择列) */}
@@ -178,13 +175,24 @@ export default function ScriptModule() {
             dataSource={data}
             columns={columns}
             pagination={{ pageSize: 8, size: "small", showTotal: (t) => `共 ${t} 条` }}
-            locale={{ emptyText: <span style={{ fontSize: 12, color: "#bbb" }}>没有剧本</span> }}
+            locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有剧本" style={{ padding: 24 }} /> }}
             rowSelection={{
               selectedRowKeys: selected,
               onChange: (keys) => setSelected(keys as number[]),
             }}
           />
         </ConfigProvider>
+      </div>
+
+      {/* 底部: 新增按钮 */}
+      <div style={{ borderTop: "1px solid #eee", padding: 10, display: "flex", justifyContent: "center" }}>
+        <Button
+          type="primary"
+          icon={<PlusOutlined />}
+          onClick={openAdd}
+          title="新增剧本"
+          style={{ width: 40, height: 40, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0, fontSize: 16 }}
+        />
       </div>
 
       {/* 新增 / 编辑弹窗 */}
