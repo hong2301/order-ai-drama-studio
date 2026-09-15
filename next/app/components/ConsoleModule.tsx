@@ -26,7 +26,7 @@ export default function ConsoleModule() {
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 14 }}>
         <div style={rowWrap}>
           <span style={labelStyle}>分辨率</span>
-          <Segmented size="small" value={resolution} onChange={(v) => setResolution(String(v))} options={["480P", "720P", "1080P", "2K"]} />
+          <Segmented size="small" value={resolution} onChange={(v) => setResolution(String(v))} options={["480P", "720P", "1080P"]} />
         </div>
 
         <div style={rowWrap}>
