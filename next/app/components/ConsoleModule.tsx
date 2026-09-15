@@ -59,7 +59,7 @@ export default function ConsoleModule() {
 
       {/* 底部工具栏: 开始生成 */}
       <div style={{ borderTop: "1px solid #eee", padding: 10, display: "flex", justifyContent: "flex-end" }}>
-        <Button type="primary" icon={<PlayCircleOutlined />} onClick={start}>
+        <Button type="primary" icon={<PlayCircleOutlined />} onClick={start} style={{ height: 40, display: "inline-flex", alignItems: "center" }}>
           开始生成
         </Button>
       </div>
