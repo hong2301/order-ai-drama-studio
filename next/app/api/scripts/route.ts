@@ -1,8 +1,8 @@
-// 剧本: GET /api/scripts 列表(支持名称模糊/创建日期范围/分页) | POST /api/scripts 新增
+// 剧本: GET /api/scripts 列表(名称模糊/创建日期范围/分页) | POST 新增(名称+内容, 名称可自动生成)
 import type { NextRequest } from "next/server";
 import { getDb, queryAll, queryOne, persist } from "@/lib/server/db";
 
-type Body = { name?: string; file_path?: string };
+type Body = { name?: string; file_path?: string; content?: string };
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +27,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   const total = Number(queryOne(db, `SELECT COUNT(*) AS n FROM scripts ${whereSql}`, params)?.n ?? 0);
   const rows = queryAll(
     db,
-    `SELECT id, name, file_path, created_at, updated_at FROM scripts ${whereSql} ORDER BY id DESC LIMIT ? OFFSET ?`,
+    `SELECT id, name, file_path, content, created_at, updated_at FROM scripts ${whereSql} ORDER BY id DESC LIMIT ? OFFSET ?`,
     [...params, pageSize, offset],
   );
   return Response.json({ items: rows, total });
@@ -38,12 +38,16 @@ export async function POST(req: NextRequest): Promise<Response> {
   try { b = (await req.json()) as Body; } catch {
     return Response.json({ detail: "参数解析失败" }, { status: 400 });
   }
-  const name = (b.name || "").trim();
-  const filePath = (b.file_path || "").trim();
-  if (!name) return Response.json({ detail: "名称不能为空" }, { status: 400 });
+  const content = b.content || "";
+  // 名称未填时从内容首行截取(自动命名)
+  const finalName = (b.name || "").trim() || content.split(/\r?\n/)[0].trim().slice(0, 30) || "";
+  if (!finalName) return Response.json({ detail: "名称或内容不能为空" }, { status: 400 });
   const now = new Date().toISOString();
   const db = await getDb();
-  db.run("INSERT INTO scripts(name, file_path, created_at, updated_at) VALUES(?,?,?,?)", [name, filePath, now, now]);
+  db.run(
+    "INSERT INTO scripts(name, file_path, content, created_at, updated_at) VALUES(?,?,?,?,?)",
+    [finalName, (b.file_path || "").trim(), content, now, now],
+  );
   // last_insert_rowid 须在 persist(export) 前读取
   const id = Number(db.exec("SELECT last_insert_rowid()")[0]?.values[0]?.[0] ?? 0);
   await persist();

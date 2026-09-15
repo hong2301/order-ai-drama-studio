@@ -98,16 +98,22 @@ function initSchema(db: Database): void {
     db.run("INSERT INTO settings(key,value) VALUES(?,?)", ["db_path", path.join(dataDir(), "drama.db")]);
     void persist();
   }
-  // 剧本表: 名称 + 文件路径 + 时间戳
+  // 剧本表: 名称 + 文件路径 + 内容(提示词/文件文本) + 时间戳
   db.run(`
     CREATE TABLE IF NOT EXISTS scripts (
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
       name       TEXT NOT NULL,
       file_path  TEXT DEFAULT '',
+      content    TEXT DEFAULT '',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
   `);
+  // 旧库迁移: 已建的 scripts 表缺 content 列时补上
+  try {
+    const cols = db.exec("PRAGMA table_info(scripts)")[0]?.values.map((r) => r[1]);
+    if (cols && !cols.includes("content")) db.run("ALTER TABLE scripts ADD COLUMN content TEXT DEFAULT ''");
+  } catch { /* ignore */ }
 }
 
 /** 读取配置项 */

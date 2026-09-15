@@ -1,20 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, ConfigProvider, DatePicker, Empty, Form, Input, Modal, Popconfirm, Table, message } from "antd";
+import { Button, ConfigProvider, DatePicker, Empty, Form, Input, Modal, Popconfirm, Table, Tabs, Upload, message } from "antd";
 import { DeleteOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import zhCN from "antd/locale/zh_CN";
+import type { UploadFile } from "antd/es/upload/interface";
 
 interface Script {
   id: number;
   name: string;
   file_path: string;
+  content: string;
   created_at: string;
   updated_at: string;
 }
 
 const PAGE_SIZE = 10; // 每页条数(滚动到底自动加载下一页)
+const ACCEPT_FILES = ".txt,.docx"; // 支持的文件类型
 
 function fmtDateTime(iso: string): string {
   try {
@@ -24,7 +27,13 @@ function fmtDateTime(iso: string): string {
   } catch { return iso; }
 }
 
-/** 剧本模块: 筛选(名称/创建日期) + 滚动加载列表 + 选择列批量删除 + 增删改 */
+/** 从上传 URL 取文件名(scripts/xxx.txt 的 xxx.txt) */
+function fileNameOf(url: string): string {
+  const parts = url.split("/");
+  return parts[parts.length - 1] || url;
+}
+
+/** 剧本模块: 文件/提示词添加 + 拖拽 + 筛选 + 滚动加载 + 选择列批量删除 + 右键删除 */
 export default function ScriptModule() {
   const [items, setItems] = useState<Script[]>([]);
   const [total, setTotal] = useState(0);
@@ -33,10 +42,11 @@ export default function ScriptModule() {
   const [loadingMore, setLoadingMore] = useState(false); // 滚动加载中
   const [selected, setSelected] = useState<number[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing] = useState<Script | null>(null);
   const [saving, setSaving] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; id: number } | null>(null); // 行右键菜单
-  const [form] = Form.useForm();
+  const [dragging, setDragging] = useState(false);      // 拖拽高亮
+  const [fileList, setFileList] = useState<UploadFile[]>([]);
+  const [textForm] = Form.useForm();
 
   // 筛选条件(ref 供滚动加载使用, 避免闭包旧值)
   const filterRef = useRef<{ kw: string; dates: [string, string] | null }>({ kw: "", dates: null });
@@ -45,7 +55,7 @@ export default function ScriptModule() {
 
   const hasMore = items.length < total;
 
-  // 请求一页(append=false 刷新, true 追加)
+  // ---------- 数据加载 ----------
   const load = useCallback((p: number, append: boolean, kw: string, dates: [string, string] | null): void => {
     if (p === 1) setLoading(true); else setLoadingMore(true);
     const q = new URLSearchParams({ name: kw, page: String(p), page_size: String(PAGE_SIZE) });
@@ -62,14 +72,12 @@ export default function ScriptModule() {
 
   useEffect(() => { void load(1, false, "", null); }, [load]);
 
-  // 筛选条件变化 → 重置第一页
   const applyFilter = (): void => {
     const { kw, dates } = filterRef.current;
     setPage(1);
     void load(1, false, kw, dates);
   };
 
-  // 滚动到底加载下一页
   const onScroll = (): void => {
     const el = scrollRef.current;
     if (!el || loading || loadingMore || !hasMore) return;
@@ -80,27 +88,64 @@ export default function ScriptModule() {
     }
   };
 
-  // 新增 / 编辑共用保存
-  const save = async (): Promise<void> => {
-    let values: { name: string; file_path?: string };
+  // ---------- 添加: 上传文件(单次) ----------
+  const uploadOne = async (f: File): Promise<void> => {
+    const fd = new FormData();
+    fd.append("file", f);
+    const r = await fetch("/api/scripts/upload", { method: "POST", body: fd });
+    const j = (await r.json()) as { detail?: string; ok?: boolean; name?: string };
+    if (!r.ok) throw new Error(j.detail || `上传失败: ${f.name}`);
+    message.success(`已添加: ${j.name ?? f.name}`);
+  };
+
+  // 弹窗内选择文件(多个)
+  const handlePickerFiles = async (files: File[]): Promise<void> => {
+    if (!files.length) return;
     try {
-      values = await form.validateFields();
+      for (const f of files) await uploadOne(f);
+      setFileList([]);
+      setModalOpen(false);
+      setSelected([]);
+      applyFilter();
+    } catch (e) {
+      message.error((e as Error).message);
+      setFileList([]);
+    }
+  };
+
+  // 模块内直接拖入文件
+  const handleDrop = async (e: React.DragEvent): Promise<void> => {
+    e.preventDefault();
+    setDragging(false);
+    const files = Array.from(e.dataTransfer?.files || []);
+    if (!files.length) return;
+    try {
+      for (const f of files) await uploadOne(f);
+      setSelected([]);
+      applyFilter();
+    } catch (err) {
+      message.error((err as Error).message);
+    }
+  };
+
+  // ---------- 添加: 粘贴提示词 ----------
+  const saveText = async (): Promise<void> => {
+    let values: { name?: string; content: string };
+    try {
+      values = await textForm.validateFields();
     } catch { return; }
     setSaving(true);
     try {
-      const url = editing ? `/api/scripts/${editing.id}` : "/api/scripts";
-      const method = editing ? "PUT" : "POST";
-      const r = await fetch(url, {
-        method,
+      const r = await fetch("/api/scripts", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: values.name, file_path: values.file_path || "" }),
+        body: JSON.stringify({ name: values.name || "", content: values.content }),
       });
-      const j = (await r.json()) as { detail?: string };
+      const j = (await r.json()) as { detail?: string; ok?: boolean };
       if (!r.ok) throw new Error(j.detail || "保存失败");
-      message.success(editing ? "已更新" : "已新增");
+      message.success("已添加");
       setModalOpen(false);
-      setEditing(null);
-      form.resetFields();
+      textForm.resetFields();
       setSelected([]);
       applyFilter();
     } catch (e) {
@@ -110,7 +155,7 @@ export default function ScriptModule() {
     }
   };
 
-  // 删除单个
+  // ---------- 删除 ----------
   const delOne = async (id: number): Promise<void> => {
     try {
       const r = await fetch(`/api/scripts/${id}`, { method: "DELETE" });
@@ -123,7 +168,6 @@ export default function ScriptModule() {
     }
   };
 
-  // 批量删除
   const delBatch = async (): Promise<void> => {
     if (!selected.length) return;
     try {
@@ -143,13 +187,8 @@ export default function ScriptModule() {
   };
 
   const openAdd = (): void => {
-    setEditing(null);
-    form.resetFields();
-    setModalOpen(true);
-  };
-  const openEdit = (rec: Script): void => {
-    setEditing(rec);
-    form.setFieldsValue({ name: rec.name, file_path: rec.file_path });
+    setFileList([]);
+    textForm.resetFields();
     setModalOpen(true);
   };
 
@@ -160,10 +199,12 @@ export default function ScriptModule() {
       render: (v: string) => <span style={{ fontSize: 13 }}>{v}</span>,
     },
     {
-      title: "文件路径", dataIndex: "file_path", key: "file_path",
+      title: "来源", dataIndex: "file_path", key: "file_path", width: 120,
       ellipsis: true,
       render: (v: string) =>
-        v ? <span style={{ fontSize: 12, color: "#888" }} title={v}>{v}</span> : <span style={{ fontSize: 12, color: "#ccc" }}>—</span>,
+        v
+          ? <span style={{ fontSize: 12, color: "#888" }} title={v}>{fileNameOf(v)}</span>
+          : <span style={{ fontSize: 12, color: "#999" }}>提示词</span>,
     },
     {
       title: "创建时间", dataIndex: "created_at", key: "created_at", width: 142,
@@ -172,7 +213,19 @@ export default function ScriptModule() {
   ];
 
   return (
-    <div style={{ width: 460, display: "flex", flexDirection: "column", borderRadius: 12, border: "1px solid #e5e5e5", background: "#fff", overflow: "hidden" }}>
+    <div
+      style={{ width: 460, display: "flex", flexDirection: "column", borderRadius: 12, border: "1px solid #e5e5e5", background: "#fff", overflow: "hidden" }}
+      onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={(e) => void handleDrop(e)}
+    >
+      {/* 拖拽悬停高亮遮罩 */}
+      {dragging && (
+        <div style={{ position: "absolute", inset: 0, zIndex: 40, background: "rgba(0,0,0,0.06)", border: "2px dashed #000", borderRadius: 12, pointerEvents: "none", display: "flex", alignItems: "center", justifyContent: "center", color: "#888", fontSize: 14 }}>
+          松开添加剧本文件
+        </div>
+      )}
+
       {/* 筛选栏: 名称搜索 + 创建日期范围 */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderBottom: "1px solid #eee" }}>
         <Input
@@ -245,7 +298,7 @@ export default function ScriptModule() {
           type="primary"
           icon={<PlusOutlined />}
           onClick={openAdd}
-          title="新增剧本"
+          title="添加剧本"
           style={{ width: 40, height: 40, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0, fontSize: 16 }}
         />
       </div>
@@ -270,25 +323,57 @@ export default function ScriptModule() {
         </>
       )}
 
-      {/* 新增 / 编辑弹窗 */}
+      {/* 添加弹窗: 上传文件 / 粘贴提示词 */}
       <Modal
         open={modalOpen}
-        title={editing ? "编辑剧本" : "新增剧本"}
-        onCancel={() => { setModalOpen(false); setEditing(null); form.resetFields(); }}
-        onOk={() => void save()}
-        confirmLoading={saving}
-        okText="保存"
-        cancelText="取消"
-        width={420}
+        title="添加剧本"
+        footer={null}
+        onCancel={() => setModalOpen(false)}
+        width={460}
+        destroyOnHidden
       >
-        <Form form={form} layout="vertical" style={{ marginTop: 8 }}>
-          <Form.Item name="name" label="名称" rules={[{ required: true, message: "请输入剧本名称" }]}>
-            <Input placeholder="剧本名称" maxLength={100} />
-          </Form.Item>
-          <Form.Item name="file_path" label="文件路径">
-            <Input placeholder="剧本文件的路径（可选）" />
-          </Form.Item>
-        </Form>
+        <Tabs
+          items={[
+            {
+              key: "file",
+              label: "上传文件",
+              children: (
+                <Upload.Dragger
+                  multiple
+                  accept={ACCEPT_FILES}
+                  fileList={fileList}
+                  beforeUpload={(_f, files) => { void handlePickerFiles(files); return false; }}
+                  onChange={({ fileList: fl }) => setFileList(fl)}
+                  style={{ padding: "6px 0" }}
+                >
+                  <p style={{ fontSize: 14, color: "#888", margin: 0 }}>点击或拖入文件</p>
+                  <p style={{ fontSize: 12, color: "#bbb", margin: "6px 0 0" }}>支持 .txt / .docx（word 图片会一并提取）</p>
+                </Upload.Dragger>
+              ),
+            },
+            {
+              key: "text",
+              label: "粘贴提示词",
+              children: (
+                <Form form={textForm} layout="vertical" style={{ marginTop: 8 }}>
+                  <Form.Item name="content" rules={[{ required: true, message: "请输入剧本内容/提示词" }]}>
+                    <Input.TextArea
+                      placeholder="输入一大段剧本内容或提示词…（名称留空时自动取首行）"
+                      autoSize={{ minRows: 6, maxRows: 12 }}
+                      style={{ fontSize: 13 }}
+                    />
+                  </Form.Item>
+                  <Form.Item name="name" label="名称（可选）">
+                    <Input placeholder="留空则自动从内容首行生成" maxLength={100} />
+                  </Form.Item>
+                  <Button type="primary" block loading={saving} onClick={() => void saveText()}>
+                    添加
+                  </Button>
+                </Form>
+              ),
+            },
+          ]}
+        />
       </Modal>
     </div>
   );
