@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, ConfigProvider, DatePicker, Empty, Form, Input, Modal, Popconfirm, Table, message } from "antd";
-import { DeleteOutlined, EditOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
+import { DeleteOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import zhCN from "antd/locale/zh_CN";
 
@@ -35,6 +35,7 @@ export default function ScriptModule() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Script | null>(null);
   const [saving, setSaving] = useState(false);
+  const [menu, setMenu] = useState<{ x: number; y: number; id: number } | null>(null); // 行右键菜单
   const [form] = Form.useForm();
 
   // 筛选条件(ref 供滚动加载使用, 避免闭包旧值)
@@ -168,17 +169,6 @@ export default function ScriptModule() {
       title: "创建时间", dataIndex: "created_at", key: "created_at", width: 142,
       render: (v: string) => <span style={{ fontSize: 12, color: "#999" }}>{fmtDateTime(v)}</span>,
     },
-    {
-      title: "操作", key: "ops", width: 76,
-      render: (_v, rec) => (
-        <>
-          <Button type="text" size="small" icon={<EditOutlined />} title="编辑" onClick={() => openEdit(rec)} style={{ marginRight: 2 }} />
-          <Popconfirm title="确认删除这条剧本？" okText="删除" cancelText="取消" okButtonProps={{ danger: true }} onConfirm={() => void delOne(rec.id)}>
-            <Button type="text" size="small" icon={<DeleteOutlined style={{ color: "#ff4d4f" }} />} title="删除" />
-          </Popconfirm>
-        </>
-      ),
-    },
   ];
 
   return (
@@ -236,6 +226,9 @@ export default function ScriptModule() {
             columns={columns}
             pagination={false}
             locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有剧本" style={{ padding: 24 }} /> }}
+            onRow={(rec) => ({
+              onContextMenu: (e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, id: rec.id }); },
+            })}
             rowSelection={{
               selectedRowKeys: selected,
               onChange: (keys) => setSelected(keys as number[]),
@@ -256,6 +249,26 @@ export default function ScriptModule() {
           style={{ width: 40, height: 40, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0, fontSize: 16 }}
         />
       </div>
+
+      {/* 行右键菜单: 删除 */}
+      {menu && (
+        <>
+          <div
+            onClick={() => setMenu(null)}
+            onContextMenu={(e) => { e.preventDefault(); setMenu(null); }}
+            style={{ position: "fixed", inset: 0, zIndex: 30 }}
+          />
+          <div style={{ position: "fixed", top: menu.y, left: menu.x, zIndex: 31, minWidth: 96, background: "#fff", border: "1px solid #eee", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.16)", overflow: "hidden" }}>
+            <div
+              className="conv-menu-item"
+              onClick={() => { const id = menu.id; setMenu(null); void delOne(id); }}
+              style={{ padding: "8px 14px", fontSize: 13, color: "#ff4d4f", cursor: "pointer" }}
+            >
+              删除
+            </div>
+          </div>
+        </>
+      )}
 
       {/* 新增 / 编辑弹窗 */}
       <Modal
