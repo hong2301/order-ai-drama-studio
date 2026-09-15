@@ -279,6 +279,7 @@ export default function ScriptModule() {
       <div ref={scrollRef} onScroll={onScroll} style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 8 }}>
         <ConfigProvider locale={zhCN}>
           <Table<Script>
+            className="clickable-table"
             rowKey="id"
             size="small"
             loading={loading}
