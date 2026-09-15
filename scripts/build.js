@@ -17,7 +17,8 @@ const clean = process.argv.includes('--clean')
 
 function sh(cmd, cwd) {
   console.log(`\n> ${cmd}`)
-  execSync(cmd, { cwd, stdio: 'inherit', shell: 'cmd.exe' })
+  // 跨平台: 不写死 shell(Node 在 win 默认 cmd.exe, unix 默认 /bin/sh)
+  execSync(cmd, { cwd, stdio: 'inherit' })
 }
 function rmdir(p) { fs.rmSync(p, { recursive: true, force: true }) }
 function copy(src, dst) {
@@ -70,19 +71,34 @@ if (fs.existsSync(publicSrc)) copy(publicSrc, path.join(SERVER_BUILD, 'public'))
 const plat = process.platform
 const target = plat === 'win32' ? '--win' : plat === 'darwin' ? '--mac' : '--linux'
 sh(`npx electron-builder ${target}`, ELECTRON)
-// 产物目录
+
+// 产物目录: electron-builder 按平台/架构命名(win-unpacked / win-arm64-unpacked, mac / mac-arm64 / mac-universal)
+function findBuildDir(prefix) {
+  if (!fs.existsSync(RELEASE_BUILD)) return null
+  for (const name of fs.readdirSync(RELEASE_BUILD)) {
+    const p = path.join(RELEASE_BUILD, name)
+    if (!fs.statSync(p).isDirectory()) continue
+    if (name === prefix || name.startsWith(prefix + '-')) return p
+  }
+  return null
+}
+
 const PACK_NAME = 'AI视频工坊'
-const winUnpacked = path.join(RELEASE_BUILD, 'win-unpacked')
-const macApp = path.join(RELEASE_BUILD, 'mac', `${PACK_NAME}.app`)
-if (plat === 'win32' && !fs.existsSync(winUnpacked)) throw new Error('electron-builder 未输出 win-unpacked')
-if (plat === 'darwin' && !fs.existsSync(macApp)) throw new Error('electron-builder 未输出 .app')
+const winDir = plat === 'win32' ? findBuildDir('win') : null
+const macDir = plat === 'darwin' ? findBuildDir('mac') : null
+// mac 的 .app 在 mac* 目录下(名字随 productName)
+const macApp = macDir
+  ? path.join(macDir, fs.readdirSync(macDir).find((n) => n.endsWith('.app')) || `${PACK_NAME}.app`)
+  : null
+if (plat === 'win32' && !winDir) throw new Error('electron-builder 未输出 win-unpacked 目录')
+if (plat === 'darwin' && (!macApp || !fs.existsSync(macApp))) throw new Error('electron-builder 未输出 .app')
 
 // ---------- 5) 组装 release/ ----------
 if (clean) rmdir(RELEASE)
 fs.mkdirSync(RELEASE, { recursive: true })
 if (plat === 'win32') {
-  for (const item of fs.readdirSync(winUnpacked)) {
-    const src = path.join(winUnpacked, item)
+  for (const item of fs.readdirSync(winDir)) {
+    const src = path.join(winDir, item)
     const dst = path.join(RELEASE, item)
     rmdir(dst)
     fs.cpSync(src, dst, { recursive: true })
@@ -116,7 +132,8 @@ if (fs.existsSync(wasmSrc)) {
 if (fs.existsSync(path.join(ROOT, '.env'))) {
   ccp(ROOT, '.env', RELEASE)
 }
-console.log('\n✅ 打包完成:', path.join(RELEASE, 'AI视频工坊.exe'))
+const outName = plat === 'darwin' ? `${PACK_NAME}.app` : plat === 'win32' ? `${PACK_NAME}.exe` : PACK_NAME
+console.log('\n✅ 打包完成:', path.join(RELEASE, outName))
 
 function ccp(base, name, dst) {
   console.log(`copy ${name} -> ${path.relative(ROOT, dst)}`)

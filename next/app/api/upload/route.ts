@@ -7,8 +7,7 @@ import { dataDir } from "@/lib/server/db";
 
 export const dynamic = "force-dynamic";
 
-const ALLOW_EXT = ["jpg", "jpeg", "png", "gif", "webp"];
-const MAX_BYTES = 10 * 1024 * 1024;
+const MAX_BYTES = 50 * 1024 * 1024; // 单文件 ≤50MB(图片/文档/视频等通用附件)
 
 export async function POST(req: NextRequest): Promise<Response> {
   let form: FormData;
@@ -26,9 +25,6 @@ export async function POST(req: NextRequest): Promise<Response> {
     return Response.json({ ok: false, msg: "文件过大(上限 10MB)" }, { status: 400 });
   }
   const ext = (file.name.split(".").pop() || "").toLowerCase();
-  if (!ALLOW_EXT.includes(ext)) {
-    return Response.json({ ok: false, msg: `仅支持图片: ${ALLOW_EXT.join("/")}` }, { status: 400 });
-  }
   const name = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   const dir = path.join(dataDir(), "uploads", folder);
   fs.mkdirSync(dir, { recursive: true });

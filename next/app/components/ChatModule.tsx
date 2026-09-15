@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Button, Input, message } from "antd";
+import { Button, Input, Modal, message } from "antd";
 import { PaperClipOutlined, SendOutlined } from "@ant-design/icons";
 
 interface Msg { role: "user" | "assistant"; content: string; images?: string[] }
@@ -15,6 +15,7 @@ export default function ChatModule() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [atts, setAtts] = useState<Att[]>([]);
+  const [preview, setPreview] = useState<string | null>(null); // 图片点击预览
   const [uploading, setUploading] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -24,13 +25,13 @@ export default function ChatModule() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, sending]);
 
-  // ---------- 附件上传(最多 9 张图片) ----------
+  // ---------- 附件上传(最多 9 个文件) ----------
   const handleFiles = async (files: FileList | null) => {
     if (!files) return;
     const list = Array.from(files);
     const room = MAX_ATTACH - atts.length;
     if (room <= 0) {
-      message.warning(`最多上传 ${MAX_ATTACH} 张图片`);
+      message.warning(`最多上传 ${MAX_ATTACH} 个文件`);
       return;
     }
     const picked = list.slice(0, room);
@@ -60,6 +61,7 @@ export default function ChatModule() {
     const images = atts.map((a) => a.url);
     setMessages((m) => [...m, { role: "user", content: text, images }]);
     setInput("");
+    setAtts([]); // 发送后清空附件预览(图片已随消息一起进对话区)
     setSending(true);
     try {
       const r = await fetch("/api/chat", {
@@ -87,7 +89,7 @@ export default function ChatModule() {
             <div style={{ fontSize: 30, marginBottom: 10 }}>🎬</div>
             你好，我是 AI 视频工坊助手
             <br />
-            可附带图片一起提问（最多 9 张）
+            可附带图片一起提问（最多 9 个）
           </div>
         )}
         {messages.map((m, i) => (
@@ -125,23 +127,43 @@ export default function ChatModule() {
           {/* 附件缩略展示 */}
           {(atts.length > 0 || uploading > 0) && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, paddingBottom: 8 }}>
-              {atts.map((a) => (
-                <div key={a.url} style={{ position: "relative", width: 44, height: 44, borderRadius: 8, overflow: "hidden", border: "1px solid #eee", flexShrink: 0 }}>
-                  <img src={a.url} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-                  <span
-                    onClick={() => setAtts((prev) => prev.filter((x) => x.url !== a.url))}
-                    title="移除"
-                    style={{
-                      position: "absolute", top: -7, right: -7, width: 16, height: 16,
-                      borderRadius: "50%", background: "#111", color: "#fff",
-                      fontSize: 11, lineHeight: "15px", textAlign: "center", cursor: "pointer",
-                      boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+              {atts.map((a) => {
+                const isImg = /\.(jpe?g|png|gif|webp)$/i.test(a.url);
+                return (
+                  <div
+                    key={a.url}
+                    className="att-item"
+                    title={isImg ? "点击预览" : `打开 ${a.name}`}
+                    onClick={() => {
+                      if (isImg) setPreview(a.url);
+                      else window.open(a.url, "_blank");
                     }}
+                    style={{ position: "relative", width: 56, height: 44, borderRadius: 8, overflow: "hidden", border: "1px solid #eee", flexShrink: 0, cursor: "pointer" }}
                   >
-                    ×
-                  </span>
-                </div>
-              ))}
+                    {isImg ? (
+                      <img src={a.url} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 2, color: "#999", background: "#fafafa" }}>
+                        <PaperClipOutlined style={{ fontSize: 15 }} />
+                        <span style={{ fontSize: 9, maxWidth: 50, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", padding: "0 4px" }}>{a.name}</span>
+                      </div>
+                    )}
+                    <span
+                      className="att-del"
+                      onClick={(e) => { e.stopPropagation(); setAtts((prev) => prev.filter((x) => x.url !== a.url)); }}
+                      title="移除"
+                      style={{
+                        position: "absolute", top: -6, right: -6, width: 16, height: 16,
+                        borderRadius: "50%", background: "#ff4d4f", color: "#fff",
+                        fontSize: 11, lineHeight: "14px", textAlign: "center", cursor: "pointer",
+                        boxShadow: "0 1px 3px rgba(0,0,0,0.3)", zIndex: 2,
+                      }}
+                    >
+                      ×
+                    </span>
+                  </div>
+                );
+              })}
               {uploading > 0 && (
                 <div style={{ width: 44, height: 44, borderRadius: 8, border: "1px dashed #ccc", display: "flex", alignItems: "center", justifyContent: "center", color: "#bbb", fontSize: 11 }}>
                   {uploading}
@@ -166,7 +188,7 @@ export default function ChatModule() {
               ref={fileRef}
               type="file"
               multiple
-              accept="image/*"
+              accept="*/*"
               style={{ display: "none" }}
               onChange={(e) => void handleFiles(e.target.files)}
             />
@@ -177,7 +199,7 @@ export default function ChatModule() {
               size="large"
               icon={<PaperClipOutlined />}
               onClick={() => fileRef.current?.click()}
-              title="上传图片附件（最多 9 张）"
+              title="上传附件（最多 9 个）"
             />
             <Button
               type="primary"
@@ -190,6 +212,11 @@ export default function ChatModule() {
             />
           </div>
       </div>
+
+      {/* 图片点击预览 */}
+      <Modal open={!!preview} footer={null} closable onCancel={() => setPreview(null)} width={800} style={{ top: 30 }}>
+        {preview && <img src={preview} alt="预览" style={{ width: "100%", display: "block", borderRadius: 4 }} />}
+      </Modal>
     </div>
   );
 }

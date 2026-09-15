@@ -5,7 +5,7 @@
   "main": "dist/main.js",
   "scripts": {
     "dev": "tsc -p tsconfig.json && wait-on http://127.0.0.1:3171 && electron .",
-    "build": "tsc -p tsconfig.json && electron-builder --win",
+    "build": "tsc -p tsconfig.json && electron-builder",
     "tsc": "tsc -p tsconfig.json"
   },
   "build": {
@@ -22,6 +22,10 @@
     "win": {
       "target": "dir",
       "icon": "icon.ico"
+    },
+    "mac": {
+      "target": "dir",
+      "identity": null
     },
     "asar": true
   },

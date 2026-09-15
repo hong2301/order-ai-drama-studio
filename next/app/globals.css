@@ -28,6 +28,10 @@ body {
   border-color: transparent !important;
 }
 
+/* 附件预览框: 默认隐藏右上角删除键, hover 显示(红色圆形) */
+.att-item .att-del { opacity: 0; transition: opacity 0.15s; }
+.att-item:hover .att-del { opacity: 1; }
+
 /* 对话气泡滚动条(可选) */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-thumb { background: #ddd; border-radius: 3px; }
