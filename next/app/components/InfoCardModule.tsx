@@ -34,8 +34,9 @@ export default function InfoCardModule(props: {
   api: string;              // /api/characters
   identityLabel: string;    // 身份/类型/品类
   identityPlaceholder: string;
+  showIdentity?: boolean;   // 是否展示身份(类型/品类)字段(场景/产品不需要)
 }) {
-  const { title, api, identityLabel, identityPlaceholder } = props;
+  const { title, api, identityLabel, identityPlaceholder, showIdentity = true } = props;
   const { message } = AntApp.useApp();
 
   const [items, setItems] = useState<CardItem[]>([]);
@@ -179,37 +180,24 @@ export default function InfoCardModule(props: {
 
   const columns: ColumnsType<CardItem> = [
     {
-      title: "名称", dataIndex: "name", key: "name", width: 110,
+      title: "名称", dataIndex: "name", key: "name",
       ellipsis: true,
       render: (v: string) => (
         <Tooltip title={v} placement="topLeft"><span style={{ fontSize: 13 }}>{v}</span></Tooltip>
       ),
     },
-    {
-      title: identityLabel, dataIndex: "identity", key: "identity",
-      render: (v: string[]) => (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
-          {Array.isArray(v) && v.length > 0
-            ? v.slice(0, 3).map((t) => <Tag key={t} style={{ fontSize: 11, margin: 0 }}>{t}</Tag>)
-            : <span style={{ fontSize: 12, color: "#ccc" }}>—</span>}
-        </div>
-      ),
-    },
-    {
-      title: "图片", dataIndex: "images", key: "images", width: 64,
-      render: (v: ImageItem[]) => (
-        <div style={{ display: "flex", gap: 2 }}>
-          {(v || []).slice(0, 3).map((i) => (
-            <img key={i.id} src={i.path} style={{ width: 26, height: 26, borderRadius: 5, objectFit: "cover", border: "1px solid #eee" }} />
-          ))}
-          {(v || []).length === 0 && <span style={{ fontSize: 12, color: "#ccc" }}>—</span>}
-        </div>
-      ),
-    },
-    {
-      title: "创建时间", dataIndex: "created_at", key: "created_at", width: 128,
-      render: (v: string) => <span style={{ fontSize: 12, color: "#999" }}>{fmtDateTime(v)}</span>,
-    },
+    ...(showIdentity
+      ? [{
+          title: identityLabel, dataIndex: "identity", key: "identity",
+          render: (v: string[]) => (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+              {Array.isArray(v) && v.length > 0
+                ? v.slice(0, 3).map((t) => <Tag key={t} style={{ fontSize: 11, margin: 0 }}>{t}</Tag>)
+                : <span style={{ fontSize: 12, color: "#ccc" }}>—</span>}
+            </div>
+          ),
+        } as ColumnsType<CardItem>[number]]
+      : []),
   ];
 
   return (
@@ -293,9 +281,11 @@ export default function InfoCardModule(props: {
           <Form.Item name="name" label="名称" rules={[{ required: true, message: "请输入名称" }]}>
             <Input placeholder="名称" maxLength={80} />
           </Form.Item>
-          <Form.Item name="identity" label={identityLabel}>
-            <Select mode="tags" placeholder={identityPlaceholder} open={false} suffixIcon={null} style={{ width: "100%" }} tokenSeparators={[",", "，"]} />
-          </Form.Item>
+          {showIdentity && (
+            <Form.Item name="identity" label={identityLabel}>
+              <Select mode="tags" placeholder={identityPlaceholder} open={false} suffixIcon={null} style={{ width: "100%" }} tokenSeparators={[",", "，"]} />
+            </Form.Item>
+          )}
           <Form.Item name="prompt" label="提示词">
             <Input.TextArea placeholder="该对象的提示词/描述（可选）" autoSize={{ minRows: 3, maxRows: 6 }} style={{ fontSize: 13 }} />
           </Form.Item>
