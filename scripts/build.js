@@ -1,54 +1,108 @@
-// 一键打包完整桌面应用到 release/
-// 流程: next静态导出 -> copy-out -> electron-builder(前端壳) -> PyInstaller(后端) -> 组装 release
-// 用法: npm run build | npm run build -- --clean
-const { execSync } = require('child_process')
+// AI视频工坊 打包脚本: npm run build
+// 流程: next build(standalone) -> 收整 next-server-build -> rebuild 原生模块(Electron ABI)
+//       -> electron-builder(套壳) -> 组装 release/ 目录
+// 用法: node scripts/build.js [--clean]
 const fs = require('fs')
 const path = require('path')
+const { execSync } = require('child_process')
 
-const withClean = process.argv.includes('--clean')
 const ROOT = path.join(__dirname, '..')
+const NEXT = path.join(ROOT, 'next')
+const ELECTRON = path.join(ROOT, 'electron')
+const SERVER_BUILD = path.join(ELECTRON, 'next-server-build')
+const RELEASE_BUILD = path.join(ROOT, 'release-build')
 const RELEASE = path.join(ROOT, 'release')
 
-function run(cmd, cwd) {
-  console.log(`\n>>> ${cmd}`)
-  execSync(cmd, { stdio: 'inherit', cwd: cwd || ROOT })
+const clean = process.argv.includes('--clean')
+
+function sh(cmd, cwd) {
+  console.log(`\n> ${cmd}`)
+  execSync(cmd, { cwd, stdio: 'inherit', shell: 'cmd.exe' })
 }
 function rmdir(p) { fs.rmSync(p, { recursive: true, force: true }) }
 function copy(src, dst) {
-  console.log(`\n>>> 复制: ${path.relative(ROOT, src)} -> ${path.relative(ROOT, dst)}`)
+  console.log(`copy ${path.relative(ROOT, src)} -> ${path.relative(ROOT, dst)}`)
+  fs.cpSync(src, dst, { recursive: true })
+}
+
+// ---------- 1) next build (standalone) ----------
+sh('npm run build', NEXT)
+const standaloneRoot = path.join(NEXT, '.next', 'standalone')
+if (!fs.existsSync(standaloneRoot)) throw new Error('缺少 .next/standalone, next build 未输出服务器')
+
+// ---------- 2) 收整 next-server-build(拍平: server.js 置于根) ----------
+function findServerJs(dir, depth = 0) {
+  if (depth > 4) return null
+  let hit = null
+  for (const name of fs.readdirSync(dir)) {
+    if (name === 'node_modules' || name === '.next') continue
+    const p = path.join(dir, name)
+    if (fs.statSync(p).isDirectory()) {
+      hit = findServerJs(p, depth + 1)
+      if (hit) return hit
+    } else if (name === 'server.js') {
+      return p
+    }
+  }
+  return null
+}
+const serverJs = findServerJs(standaloneRoot)
+if (!serverJs) throw new Error('standalone 中未找到 server.js')
+const serverDir = path.dirname(serverJs)
+
+if (clean) rmdir(SERVER_BUILD)
+fs.mkdirSync(SERVER_BUILD, { recursive: true })
+for (const item of fs.readdirSync(serverDir)) {
+  const src = path.join(serverDir, item)
+  const dst = path.join(SERVER_BUILD, item)
   rmdir(dst)
   fs.cpSync(src, dst, { recursive: true })
 }
-// 移动(磁盘紧张的机器避免双份占用)
-function move(src, dst) {
-  console.log(`\n>>> 移动: ${path.relative(ROOT, src)} -> ${path.relative(ROOT, dst)}`)
+// 静态资源(.next/static) + public
+const staticSrc = path.join(NEXT, '.next', 'static')
+if (fs.existsSync(staticSrc)) copy(staticSrc, path.join(SERVER_BUILD, '.next', 'static'))
+const publicSrc = path.join(NEXT, 'public')
+if (fs.existsSync(publicSrc)) copy(publicSrc, path.join(SERVER_BUILD, 'public'))
+
+// ---------- 3) 原生模块: 无(sql.js 纯 WASM, dev/Electron ABI 同构, 无需 rebuild) ----------
+
+// ---------- 4) electron-builder 套壳打包 ----------
+sh('npx electron-builder --win', ELECTRON)
+const winUnpacked = path.join(RELEASE_BUILD, 'win-unpacked')
+if (!fs.existsSync(winUnpacked)) throw new Error('electron-builder 未输出 win-unpacked')
+
+// ---------- 5) 组装 release/ ----------
+if (clean) rmdir(RELEASE)
+fs.mkdirSync(RELEASE, { recursive: true })
+for (const item of fs.readdirSync(winUnpacked)) {
+  const src = path.join(winUnpacked, item)
+  const dst = path.join(RELEASE, item)
   rmdir(dst)
-  fs.renameSync(src, dst)
+  fs.cpSync(src, dst, { recursive: true })
 }
-
-function build() {
-  // 1) 前端静态导出(next/out)
-  run('npm --prefix ../frontend/next run build', path.join(ROOT, 'frontend'))
-  // 2) 复制 out -> electron/out
-  run('node scripts/copy-out.js', path.join(ROOT, 'frontend'))
-  // 3) electron-builder 打包前端壳(frontend/build/win-unpacked)
-  run('npm run build', path.join(ROOT, 'frontend', 'electron'))
-  // 4) PyInstaller 打包后端(backend/dist/drama-backend)
-  run('python build_backend.py', path.join(ROOT, 'backend'))
-  // 5) 组装 release/
-  rmdir(RELEASE)
-  fs.mkdirSync(RELEASE, { recursive: true })
-  move(path.join(ROOT, 'frontend', 'build', 'win-unpacked'), RELEASE)
-  move(path.join(ROOT, 'backend', 'dist', 'drama-backend'), path.join(RELEASE, 'resources', 'backend'))
-  fs.mkdirSync(path.join(RELEASE, 'data'), { recursive: true })
-  console.log('\n✅ 打包完成:')
-  console.log(`   ${path.join(RELEASE, 'AiDramaStudio.exe')}`)
-  console.log('   (首次运行自动在 release/data 建立数据库)')
+fs.mkdirSync(path.join(RELEASE, 'data'), { recursive: true })
+// next standalone 服务器(electron-builder extraResources 会漏 node_modules/.next, 这里手动组装)
+const nextServerDst = path.join(RELEASE, 'resources', 'next-server')
+rmdir(nextServerDst)
+fs.mkdirSync(nextServerDst, { recursive: true })
+for (const item of fs.readdirSync(SERVER_BUILD)) {
+  copy(path.join(SERVER_BUILD, item), path.join(nextServerDst, item))
 }
+// sql.js 的 wasm: Next standalone trace 不收集非 JS 资源, 需手动补拷(否则正式版数据库无法初始化)
+const wasmSrc = path.join(NEXT, 'node_modules', 'sql.js', 'dist', 'sql-wasm.wasm')
+const wasmDst = path.join(nextServerDst, 'node_modules', 'sql.js', 'dist', 'sql-wasm.wasm')
+if (fs.existsSync(wasmSrc)) {
+  fs.mkdirSync(path.dirname(wasmDst), { recursive: true })
+  fs.copyFileSync(wasmSrc, wasmDst)
+  console.log('copy sql-wasm.wasm -> next-server/node_modules/sql.js/dist/')
+}
+// 复制根 .env(exe 同级, Electron 启动时加载)
+if (fs.existsSync(path.join(ROOT, '.env'))) {
+  ccp(ROOT, '.env', RELEASE)
+}
+console.log('\n✅ 打包完成:', path.join(RELEASE, 'AI视频工坊.exe'))
 
-try {
-  build()
-} catch (e) {
-  console.error('\n❌ 打包失败:', e.message)
-  process.exit(1)
+function ccp(base, name, dst) {
+  console.log(`copy ${name} -> ${path.relative(ROOT, dst)}`)
+  fs.copyFileSync(path.join(base, name), path.join(dst, name))
 }

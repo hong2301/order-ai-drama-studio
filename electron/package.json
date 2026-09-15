@@ -1,0 +1,36 @@
+{
+  "name": "ai-video-studio-electron",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "tsc -p tsconfig.json && wait-on http://127.0.0.1:3171 && electron .",
+    "build": "tsc -p tsconfig.json && electron-builder --win",
+    "tsc": "tsc -p tsconfig.json"
+  },
+  "build": {
+    "appId": "com.ai-video-studio.app",
+    "productName": "AI视频工坊",
+    "directories": {
+      "output": "../release-build"
+    },
+    "files": [
+      "dist/**",
+      "package.json",
+      "icon.png"
+    ],
+    "win": {
+      "target": "dir",
+      "icon": "icon.ico"
+    },
+    "asar": true
+  },
+  "devDependencies": {
+    "@types/node": "^26.5.1",
+    "electron": "^31.7.7",
+    "electron-builder": "^26.15.3",
+    "electron-rebuild": "^3.2.9",
+    "typescript": "^7.0.2",
+    "wait-on": "^9.1.0"
+  }
+}

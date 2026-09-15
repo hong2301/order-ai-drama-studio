@@ -5,38 +5,29 @@ node_modules/
 .next/
 out/
 
-# --- 前端壳构建 ---
-frontend/electron/dist/
-frontend/electron/next-server-build/
-frontend/build/
+# --- 打包产物 ---
+release/
+release-build/
+electron/dist/
 
-# --- 数据(数据库/视频/日志, 含可能保存的 API Key) ---
+# --- Electron 运行时缓存 ---
+electron/next-server-build/
+
+# --- 数据(数据库/上传/日志) ---
 data/
 *.db
 *.db-wal
 *.db-shm
 
-# --- 打包产物 ---
-release/
-backend/dist/
-backend/build/
-backend/*.spec
-
-# --- Python 缓存 ---
-__pycache__/
-*.pyc
-
 # --- 密钥 ---
 .env
 .env.local
-.env.*.local
 
-# --- 大视频产物(根目录实验素材) ---
-*.mp4
-
-# --- 系统/工具 ---
+# --- 工具/系统 ---
+tsconfig.tsbuildinfo
 .DS_Store
 Thumbs.db
-
+__pycache__/
+*.pyc
 # --- pi 本地配置 ---
 .pi/
