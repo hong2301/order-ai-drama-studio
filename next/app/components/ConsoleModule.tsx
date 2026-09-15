@@ -98,6 +98,7 @@ export default function ConsoleModule() {
         body: JSON.stringify({
           modelKey: mk,
           prompt: prompt.trim(),
+          scriptId: activeScriptRef.current, // 一致性检查+剧情适配用
           resolution,
           ratio,
           duration,

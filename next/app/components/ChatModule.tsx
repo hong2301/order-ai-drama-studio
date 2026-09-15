@@ -130,6 +130,15 @@ export default function ChatModule() {
   // 当前选中模型的展示名
   const curChatModel = arkModels.find((m) => m.id === chatModel) || null;
 
+  /** 切换对话模型: 本地使用 + 同步到服务端(剧本解析/剧情适配共用同一模型) */
+  const selectChatModel = (id: string): void => {
+    void fetch("/api/models/select", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: id }),
+    }).catch(() => { /* 静默 */ });
+  };
+
   // 当前会话消息变化: 自动保存内容(标题/消息), 但**不**更新时间戳
   // (时间只在真正发消息时由 touchConv 更新, 否则切换会话查看会把时间刷成"刚刚")
   useEffect(() => {
@@ -476,7 +485,7 @@ export default function ChatModule() {
                       arkModels.map((m) => (
                         <div
                           key={m.id}
-                          onClick={() => { setChatModel(m.id); setModelOpen(false); }}
+                          onClick={() => { setChatModel(m.id); setModelOpen(false); void selectChatModel(m.id); }}
                           style={{
                             display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8,
                             padding: "7px 10px", fontSize: 13, cursor: "pointer", borderRadius: 6,
