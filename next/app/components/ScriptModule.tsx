@@ -27,10 +27,10 @@ function fmtDateTime(iso: string): string {
   } catch { return iso; }
 }
 
-/** 从上传 URL 取文件名(scripts/xxx.txt 的 xxx.txt) */
-function fileNameOf(url: string): string {
-  const parts = url.split("/");
-  return parts[parts.length - 1] || url;
+/** 上传 URL(/api/uploads/scripts/xxx.txt) → data 内相对路径(显示用) */
+function filePathOf(url: string): string {
+  const m = /^\/(api\/uploads\/.*)$/.exec(url);
+  return m ? `data/${m[1]}` : url;
 }
 
 /** 剧本模块: 文件/提示词添加 + 拖拽 + 筛选 + 滚动加载 + 选择列批量删除 + 右键删除 */
@@ -211,12 +211,12 @@ export default function ScriptModule() {
       render: (v: string) => <span style={{ fontSize: 13 }}>{v}</span>,
     },
     {
-      title: "来源", dataIndex: "file_path", key: "file_path", width: 120,
+      title: "文件路径", dataIndex: "file_path", key: "file_path", width: 150,
       ellipsis: true,
       render: (v: string) =>
         v
-          ? <span style={{ fontSize: 12, color: "#888" }} title={v}>{fileNameOf(v)}</span>
-          : <span style={{ fontSize: 12, color: "#999" }}>提示词</span>,
+          ? <span style={{ fontSize: 12, color: "#888" }} title={v}>{filePathOf(v)}</span>
+          : <span style={{ fontSize: 12, color: "#ccc" }}>—</span>,
     },
     {
       title: "创建时间", dataIndex: "created_at", key: "created_at", width: 142,

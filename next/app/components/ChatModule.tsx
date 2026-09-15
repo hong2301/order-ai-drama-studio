@@ -2,13 +2,23 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button, Input, Modal, message } from "antd";
-import { PaperClipOutlined, SendOutlined, UnorderedListOutlined } from "@ant-design/icons";
+import { FileOutlined, FilePdfOutlined, FileTextOutlined, FileWordOutlined, PaperClipOutlined, SendOutlined, UnorderedListOutlined } from "@ant-design/icons";
 
 interface Msg { role: "user" | "assistant"; content: string; images?: string[] }
 interface Att { name: string; url: string }
 interface Conv { id: string; title: string; updatedAt: number; messages: Msg[] }
 
 const MAX_ATTACH = 9; // 最多 9 个附件
+
+/** 附件文件类型占位: 按扩展名返回图标+颜色 */
+function fileIconOf(name: string): { icon: React.ReactNode; color: string } {
+  const ext = name.split(".").pop()?.toLowerCase() || "";
+  if (["doc", "docx"].includes(ext)) return { icon: <FileWordOutlined />, color: "#2b579a" };
+  if (["pdf"].includes(ext)) return { icon: <FilePdfOutlined />, color: "#e5484d" };
+  if (["xls", "xlsx", "csv"].includes(ext)) return { icon: <FileTextOutlined />, color: "#217346" };
+  if (["txt", "md", "json", "log"].includes(ext)) return { icon: <FileTextOutlined />, color: "#666" };
+  return { icon: <FileOutlined />, color: "#999" };
+}
 const LEGACY_KEY = "aivs:chat:v1"; // 旧单会话历史(迁移用)
 const CONVS_KEY = "aivs:convs:v1"; // 多会话列表(标题/时间/消息)
 
@@ -355,9 +365,9 @@ export default function ChatModule() {
                     {isImg ? (
                       <img src={a.url} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", borderRadius: 7 }} />
                     ) : (
-                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 2, color: "#999", background: "#fafafa" }}>
-                        <PaperClipOutlined style={{ fontSize: 15 }} />
-                        <span style={{ fontSize: 9, maxWidth: 50, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", padding: "0 4px" }}>{a.name}</span>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 3, background: "#fafafa", padding: "3px 4px" }}>
+                        <span style={{ fontSize: 16, lineHeight: 1, color: fileIconOf(a.name).color }}>{fileIconOf(a.name).icon}</span>
+                        <span style={{ fontSize: 9, lineHeight: 1.1, maxWidth: 52, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#666" }}>{a.name}</span>
                       </div>
                     )}
                     <span
