@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { App as AntApp, Button, InputNumber, Segmented } from "antd";
+import { App as AntApp, Button, InputNumber, Segmented, Space } from "antd";
 import { PlayCircleOutlined } from "@ant-design/icons";
 
 /** 控制台模块: 视频生成基础参数(分辨率/比例/时长) + 底部工具栏(开始生成) */
@@ -45,15 +45,16 @@ export default function ConsoleModule() {
 
         <div style={rowWrap}>
           <span style={labelStyle}>时长</span>
-          <InputNumber
-            size="small"
-            min={1}
-            max={120}
-            value={duration}
-            onChange={(v) => setDuration(Number(v) || 1)}
-            addonAfter="秒"
-            style={{ width: 120 }}
-          />
+          <Space.Compact size="small">
+            <InputNumber
+              min={1}
+              max={120}
+              value={duration}
+              onChange={(v) => setDuration(Number(v) || 1)}
+              style={{ width: 96 }}
+            />
+            <div style={{ padding: "0 10px", background: "#f5f5f5", borderLeft: "1px solid #eee", display: "flex", alignItems: "center", fontSize: 12, color: "#666" }}>秒</div>
+          </Space.Compact>
         </div>
       </div>
 
