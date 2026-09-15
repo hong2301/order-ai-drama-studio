@@ -21,11 +21,8 @@ export default function ConsoleModule() {
   const labelStyle: React.CSSProperties = { fontSize: 12, color: "#666", flexShrink: 0, width: 44 };
 
   return (
-    <div style={{ flex: 1, minHeight: 0, width: "100%", display: "flex", flexDirection: "column", borderRadius: 12, border: "1px solid #e5e5e5", background: "#fff", overflow: "hidden" }}>
-      {/* 标题行 */}
-      <div style={{ padding: "8px 12px", borderBottom: "1px solid #eee", fontSize: 13, fontWeight: 600, color: "#111" }}>
-        控制台
-      </div>
+    <div style={{ flex: 1, minHeight: 0, width: "100%", display: "flex", flexDirection: "column", borderRadius: 12, border: "2px solid #111", background: "#fff", overflow: "hidden" }}>
+      {/* 参数区(无标题) */}
 
       {/* 参数区 */}
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "10px 12px", display: "flex", flexDirection: "column", gap: 14 }}>
