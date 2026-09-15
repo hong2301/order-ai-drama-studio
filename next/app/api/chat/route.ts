@@ -67,7 +67,13 @@ async function execAddScript(args: Record<string, unknown>): Promise<string> {
     );
     const id = Number(db.exec("SELECT last_insert_rowid()")[0]?.values[0]?.[0] ?? 0);
     await persist();
-    return JSON.stringify({ ok: true, id, name });
+    // AI 添加后同样自动解析(识别人物/场景/产品/清晰度/时长/关键词; 失败不影响)
+    let parse = null;
+    try {
+      const { parseScript } = await import("@/lib/server/scriptParse");
+      parse = await parseScript(id);
+    } catch { /* ignore */ }
+    return JSON.stringify({ ok: true, id, name, parse });
   } catch (e) {
     return JSON.stringify({ ok: false, detail: (e as Error).message });
   }
