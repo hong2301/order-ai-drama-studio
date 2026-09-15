@@ -12,17 +12,16 @@ const MAX_ATTACH = 9; // 最多 9 个附件
 const LEGACY_KEY = "aivs:chat:v1"; // 旧单会话历史(迁移用)
 const CONVS_KEY = "aivs:convs:v1"; // 多会话列表(标题/时间/消息)
 
-/** 相对/绝对时间显示 */
+/** 相对/绝对时间显示: 刚刚 → N分钟前 → N小时前 → 年月日 时:分(不带秒) */
 function fmtTime(ts: number): string {
   const d = new Date(ts);
-  const now = new Date();
-  const diff = now.getTime() - ts;
+  const now = Date.now();
+  const diff = now - ts;
   if (diff < 60_000) return "刚刚";
   if (diff < 3600_000) return `${Math.floor(diff / 60_000)}分钟前`;
   if (diff < 86400_000) return `${Math.floor(diff / 3600_000)}小时前`;
   const pad = (n: number): string => String(n).padStart(2, "0");
-  if (d.getFullYear() === now.getFullYear()) return `${d.getMonth() + 1}月${d.getDate()}日 ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 /** 会话标题: 取第一条用户消息前 18 字(无消息时"新对话") */
@@ -96,13 +95,14 @@ export default function ChatModule() {
     setLoading(false);
   }, []);
 
-  // 当前会话消息变化: 自动保存(标题/时间/内容), 最多保留 30 个会话
+  // 当前会话消息变化: 自动保存内容(标题/消息), 但**不**更新时间戳
+  // (时间只在真正发消息时由 touchConv 更新, 否则切换会话查看会把时间刷成"刚刚")
   useEffect(() => {
     if (loading || !convId) return;
     setConvs((prev) => {
       const next = prev.map((c) =>
         c.id === convId
-          ? { ...c, messages, updatedAt: Date.now(), title: c.title !== "新对话" ? c.title : deriveTitle(messages) }
+          ? { ...c, messages, title: c.title !== "新对话" ? c.title : deriveTitle(messages) }
           : c,
       );
       saveConvs(next, convId);
@@ -110,14 +110,24 @@ export default function ChatModule() {
     });
   }, [messages, loading, convId]);
 
+  // 更新当前会话的最后对话时间(精确到毫秒存储, 前端自行格式化为 刚刚/N分钟前/年月日时分)
+  const touchConv = (): void => {
+    if (!convId) return;
+    setConvs((prev) => {
+      const next = prev.map((c) => (c.id === convId ? { ...c, updatedAt: Date.now() } : c));
+      saveConvs(next, convId);
+      return next;
+    });
+  };
+
   // 切换到某个历史会话
   const openConv = (id: string): void => {
     const c = convs.find((x) => x.id === id);
     if (!c) return;
-    // 切换前先把当前会话的最新消息落库(避免保存 effect 竞态丢消息)
+    // 切换前先把当前会话的最新消息落库(内容不变更时间)
     if (convId && convId !== id) {
       setConvs((prev) => {
-        const next = prev.map((x) => (x.id === convId ? { ...x, messages, updatedAt: Date.now() } : x));
+        const next = prev.map((x) => (x.id === convId ? { ...x, messages } : x));
         saveConvs(next, id);
         return next;
       });
@@ -217,6 +227,7 @@ export default function ChatModule() {
       setMessages((m) => [...m, { role: "assistant", content: `(调用失败) ${(e as Error).message}` }]);
     } finally {
       setSending(false);
+      touchConv(); // 本轮对话结束(成功或失败), 记为最后对话时间
     }
   };
 
