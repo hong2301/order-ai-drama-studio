@@ -62,7 +62,7 @@ function plainText(content: string): string {
   return content.replace(/<[^>]*>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
 }
 
-/** 查重或写入某资料库表, 返回记录 id */
+/** 写入资料库表(同名也新建 — 提示词等可能不一致, 不按名称合并) */
 function upsertRecord(
   db: Database,
   table: "characters" | "scenes" | "products",
@@ -71,8 +71,6 @@ function upsertRecord(
 ): number | null {
   const name = String(item.name ?? "").trim();
   if (!name) return null;
-  const exist = queryOne(db, `SELECT id FROM ${table} WHERE name=?`, [name]);
-  if (exist) return Number(exist.id);
   const identity = Array.isArray(item.identity) ? item.identity.map((s) => String(s).trim()).filter(Boolean) : [];
   const prompt = String(item.prompt ?? "").trim().slice(0, 2000);
   db.run(
