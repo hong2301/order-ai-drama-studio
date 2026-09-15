@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "antd";
-import { ReloadOutlined, VideoCameraOutlined } from "@ant-design/icons";
+import { ReloadOutlined } from "@ant-design/icons";
 import ChatModule from "./components/ChatModule";
 import ScriptModule from "./components/ScriptModule";
 import ConsoleModule from "./components/ConsoleModule";
@@ -18,7 +18,7 @@ export default function Home() {
           borderBottom: "1px solid #e5e5e5", flexShrink: 0,
         }}
       >
-        <VideoCameraOutlined style={{ fontSize: 22, color: "#000" }} />
+        <img src="/icon.svg" alt="logo" style={{ width: 22, height: 22, borderRadius: 5 }} />
         <span style={{ fontWeight: 700, fontSize: 16, letterSpacing: 0.5 }}>AI视频工坊</span>
         <div style={{ flex: 1 }} />
         <Button
