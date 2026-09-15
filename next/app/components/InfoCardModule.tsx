@@ -212,15 +212,16 @@ export default function InfoCardModule(props: {
     <div
       style={{ flex: 1, minHeight: 0, width: "100%", display: "flex", flexDirection: "column", borderRadius: 12, border: "1px solid #e5e5e5", background: "#fff", overflow: "hidden" }}
     >
-      {/* 模块标题行 + 搜索 */}
+      {/* 模块标题行 + 搜索(靠右) */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderBottom: "1px solid #eee" }}>
         <span style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }}>{title}</span>
+        <div style={{ flex: 1 }} />
         <Input
           placeholder="搜索名称"
           prefix={<SearchOutlined style={{ color: "#bbb" }} />}
           allowClear
           size="small"
-          style={{ flex: 1, maxWidth: 170 }}
+          style={{ width: 170 }}
           onChange={(e) => {
             if (debounceRef.current) clearTimeout(debounceRef.current);
             debounceRef.current = setTimeout(() => { filterRef.current = { kw: e.target.value.trim() }; applyFilter(); }, 300);
