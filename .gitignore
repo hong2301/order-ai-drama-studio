@@ -19,8 +19,7 @@ data/
 *.db-wal
 *.db-shm
 
-# --- 密钥 ---
-.env
+# --- 密钥(local 略: .env 入库, .env.local 仅本机) ---
 .env.local
 
 # --- 工具/系统 ---
