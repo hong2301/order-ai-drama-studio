@@ -113,6 +113,18 @@ function initSchema(db: Database): void {
   try {
     const cols = db.exec("PRAGMA table_info(scripts)")[0]?.values.map((r) => r[1]);
     if (cols && !cols.includes("content")) db.run("ALTER TABLE scripts ADD COLUMN content TEXT DEFAULT ''");
+    // 解析字段(人物/场景/产品id数组 + 清晰度/时长/比例 + 关键词)
+    for (const [col, def] of [
+      ["character_ids", "TEXT DEFAULT '[]'"],
+      ["scene_ids", "TEXT DEFAULT '[]'"],
+      ["product_ids", "TEXT DEFAULT '[]'"],
+      ["resolution", "TEXT DEFAULT ''"],
+      ["duration", "TEXT DEFAULT ''"],
+      ["ratio", "TEXT DEFAULT ''"],
+      ["keywords", "TEXT DEFAULT '[]'"],
+    ] as [string, string][]) {
+      if (cols && !cols.includes(col)) db.run(`ALTER TABLE scripts ADD COLUMN ${col} ${def}`);
+    }
   } catch { /* ignore */ }
 
   // 图片表: 人物/场景等模块共用图片资源

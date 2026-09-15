@@ -70,5 +70,11 @@ export async function POST(req: NextRequest): Promise<Response> {
   );
   const id = Number(db.exec("SELECT last_insert_rowid()")[0]?.values[0]?.[0] ?? 0);
   await persist();
-  return Response.json({ ok: true, id, name });
+  // 自动解析(识别人物/场景/产品/清晰度/时长/关键词; 失败不影响添加)
+  let parse = null;
+  try {
+    const { parseScript } = await import("@/lib/server/scriptParse");
+    parse = await parseScript(id);
+  } catch { /* ignore */ }
+  return Response.json({ ok: true, id, name, parse });
 }

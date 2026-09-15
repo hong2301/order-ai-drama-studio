@@ -27,7 +27,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   const total = Number(queryOne(db, `SELECT COUNT(*) AS n FROM scripts ${whereSql}`, params)?.n ?? 0);
   const rows = queryAll(
     db,
-    `SELECT id, name, file_path, content, created_at, updated_at FROM scripts ${whereSql} ORDER BY id DESC LIMIT ? OFFSET ?`,
+    `SELECT * FROM scripts ${whereSql} ORDER BY id DESC LIMIT ? OFFSET ?`,
     [...params, pageSize, offset],
   );
   return Response.json({ items: rows, total });
@@ -51,5 +51,11 @@ export async function POST(req: NextRequest): Promise<Response> {
   // last_insert_rowid 须在 persist(export) 前读取
   const id = Number(db.exec("SELECT last_insert_rowid()")[0]?.values[0]?.[0] ?? 0);
   await persist();
-  return Response.json({ ok: true, id });
+  // 自动解析(识别人物/场景/产品/清晰度/时长/关键词; 失败不影响添加)
+  let parse = null;
+  try {
+    const { parseScript } = await import("@/lib/server/scriptParse");
+    parse = await parseScript(id);
+  } catch { /* ignore */ }
+  return Response.json({ ok: true, id, parse });
 }

@@ -14,6 +14,13 @@ interface Script {
   content: string;
   created_at: string;
   updated_at: string;
+  character_ids?: string;
+  scene_ids?: string;
+  product_ids?: string;
+  resolution?: string;
+  duration?: string;
+  ratio?: string;
+  keywords?: string;
 }
 
 const PAGE_SIZE = 10; // 每页条数(滚动到底自动加载下一页)
@@ -210,15 +217,45 @@ export default function ScriptModule() {
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
+  // 右键手动解析剧本(识别人物/场景/产品/清晰度/时长/关键词)
+  const parseOne = async (id: number): Promise<void> => {
+    setMenu(null);
+    message.loading("正在解析…");
+    try {
+      const r = await fetch(`/api/scripts/${id}/parse`, { method: "POST" });
+      const j = (await r.json()) as { detail?: string; ok?: boolean; summary?: string };
+      if (!r.ok) throw new Error(j.detail || "解析失败");
+      message.success(`解析完成: ${j.summary || ""}`);
+      applyFilter();
+    } catch (e) {
+      message.error((e as Error).message);
+    }
+  };
+
   const columns: ColumnsType<Script> = [
     {
       title: "名称", dataIndex: "name", key: "name",
       ellipsis: true,
-      render: (v: string) => (
-        <Tooltip title={v} placement="topLeft">
-          <span style={{ fontSize: 13 }}>{v}</span>
-        </Tooltip>
-      ),
+      render: (v: string, rec) => {
+        let tag = "";
+        try {
+          const cs = JSON.parse(rec.character_ids || "[]") as number[];
+          const ss = JSON.parse(rec.scene_ids || "[]") as number[];
+          const ps = JSON.parse(rec.product_ids || "[]") as number[];
+          tag = `人物${cs.length}·场景${ss.length}·产品${ps.length}`;
+          if (rec.resolution || rec.duration || rec.ratio) {
+            tag += `｜${[rec.resolution, rec.ratio, rec.duration ? `${rec.duration}秒` : ""].filter(Boolean).join(" ")}`;
+          }
+        } catch { /* ignore */ }
+        return (
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            <Tooltip title={v} placement="topLeft">
+              <span style={{ fontSize: 13 }}>{v}</span>
+            </Tooltip>
+            {tag && <span style={{ fontSize: 10, color: "#bbb" }}>{tag}</span>}
+          </div>
+        );
+      },
     },
     {
       title: "文件路径", dataIndex: "file_path", key: "file_path", width: 150,
@@ -329,8 +366,7 @@ export default function ScriptModule() {
         />
       </div>
 
-      
-{/* 行右键菜单: 删除 */}
+      {/* 行右键菜单: 解析 / 删除 */}
       {menu && (
         <>
           <div
@@ -339,6 +375,13 @@ export default function ScriptModule() {
             style={{ position: "fixed", inset: 0, zIndex: 30 }}
           />
           <div style={{ position: "fixed", top: menu.y, left: menu.x, zIndex: 31, minWidth: 96, background: "#fff", border: "1px solid #eee", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.16)", overflow: "hidden" }}>
+            <div
+              className="conv-menu-item"
+              onClick={() => { const id = menu.id; setMenu(null); void parseOne(id); }}
+              style={{ padding: "8px 14px", fontSize: 13, color: "#111", cursor: "pointer" }}
+            >
+              解析
+            </div>
             <div
               className="conv-menu-item"
               onClick={() => { const id = menu.id; setMenu(null); void delOne(id); }}
