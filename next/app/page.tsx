@@ -32,7 +32,7 @@ export default function Home() {
       <div style={{ flex: 1, minHeight: 0, padding: 16, display: "flex", gap: 16, alignItems: "stretch" }}>
         <ChatModule />
         <ScriptModule />
-        {/* 人物/场景/产品: 三个资料库上中下排成一列(共用图片表) */}
+        {/* 人物/场景/产品: 三个资料库上中下排成一列(共用图片表), flex 撑满列高 */}
         <div style={{ width: 460, display: "flex", flexDirection: "column", gap: 12 }}>
           <InfoCardModule title="人物库" api="/api/characters" identityLabel="身份" identityPlaceholder="输入身份后回车, 如 主角/婆婆/邻居" />
           <InfoCardModule title="场景库" api="/api/scenes" identityLabel="类型" identityPlaceholder="" showIdentity={false} />
