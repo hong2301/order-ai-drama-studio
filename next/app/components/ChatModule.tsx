@@ -327,15 +327,33 @@ export default function ChatModule() {
               }}
             >
               {m.content}
-              {/* 消息携带的图片 */}
+              {/* 消息携带的图片/文件(图片缩略; 文件按类型占位, 可点击打开) */}
               {m.images && m.images.length > 0 && (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
-                  {m.images.map((u) => (
-                    <img
-                      key={u} src={u}
-                      style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 8, border: "1px solid rgba(0,0,0,0.08)", display: "block" }}
-                    />
-                  ))}
+                  {m.images.map((u) => {
+                    const isImg = /\.(jpe?g|png|gif|webp)$/i.test(u);
+                    const fname = u.split("/").pop() || u;
+                    if (isImg) {
+                      return (
+                        <img
+                          key={u} src={u} alt="附件图片"
+                          style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 8, border: "1px solid rgba(0,0,0,0.08)", display: "block" }}
+                        />
+                      );
+                    }
+                    const fi = fileIconOf(fname);
+                    return (
+                      <div
+                        key={u}
+                        onClick={() => window.open(u, "_blank")}
+                        title={`打开 ${fname}`}
+                        style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px", borderRadius: 8, background: "rgba(0,0,0,0.06)", cursor: "pointer", fontSize: 12, color: "#555", maxWidth: 170 }}
+                      >
+                        <span style={{ fontSize: 15, lineHeight: 1, color: fi.color, flexShrink: 0 }}>{fi.icon}</span>
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fname}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

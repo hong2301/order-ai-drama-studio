@@ -56,13 +56,14 @@ async function attachTextOf(url: string): Promise<{ name: string; text: string }
 async function execAddScript(args: Record<string, unknown>): Promise<string> {
   const content = String(args.content ?? "").trim();
   if (!content) return JSON.stringify({ ok: false, detail: "内容为空" });
+  const filePath = String(args.file_path ?? "").trim();
   const name = String(args.name ?? "").trim() || content.split(/\r?\n/)[0].trim().slice(0, 30) || "未命名";
   const now = new Date().toISOString();
   try {
     const db = await getDb();
     db.run(
       "INSERT INTO scripts(name, file_path, content, created_at, updated_at) VALUES(?,?,?,?,?)",
-      [name, "", content, now, now],
+      [name, filePath, content, now, now],
     );
     const id = Number(db.exec("SELECT last_insert_rowid()")[0]?.values[0]?.[0] ?? 0);
     await persist();
@@ -74,14 +75,47 @@ async function execAddScript(args: Record<string, unknown>): Promise<string> {
 
 const ADD_SCRIPT_TOOL: ToolDef = {
   name: "add_script",
-  description: "把用户提供的剧本内容或提示词保存到剧本库。当用户说\"加入剧本库/保存剧本/记录剧本\"或提供剧本文字时调用；可从用户附件(剧本文件)内容中提取剧本正文。",
+  description: "将剧本内容/提示词保存到剧本库。**仅在用户明确要求「加入剧本库/保存剧本/记录到剧本库」时调用**；只读文件内容、回答关于文件的问题时绝不要调用(用 read_file)。内容来自附件文件时须带 file_path。",
   parameters: {
     type: "object",
     properties: {
       name: { type: "string", description: "剧本名称(可选, 不填则取内容首行)" },
       content: { type: "string", description: "剧本完整内容或提示词" },
+      file_path: { type: "string", description: "内容来自用户附件时填其在 data 目录下的路径, 如 data/uploads/chat/xxx.docx" },
     },
     required: ["content"],
+  },
+};
+
+/** 读取用户附件文件内容(仅文本文件), 不写入剧本库 */
+async function execReadFile(args: Record<string, unknown>): Promise<string> {
+  const raw = String(args.path ?? "").trim();
+  const m = /^data\/uploads\/(.+)$/.exec(raw);
+  if (!m) return JSON.stringify({ ok: false, detail: "path 应为 data/uploads/... 格式" });
+  const file = path.join(dataDir(), "uploads", m[1]);
+  if (!fs.existsSync(file)) return JSON.stringify({ ok: false, detail: "文件不存在" });
+  const ext = path.extname(file).slice(1).toLowerCase();
+  let text = "";
+  try {
+    if (ext === "docx") text = (await mammoth.extractRawText({ buffer: fs.readFileSync(file) })).value || "";
+    else if (ext === "txt" || ext === "md") text = fs.readFileSync(file, "utf8");
+    else return JSON.stringify({ ok: false, detail: "该文件类型无法读取文本" });
+  } catch {
+    return JSON.stringify({ ok: false, detail: "读取文件失败" });
+  }
+  if (!text.trim()) return JSON.stringify({ ok: false, detail: "文件无文本内容" });
+  return text.slice(0, 20000);
+}
+
+const READ_FILE_TOOL: ToolDef = {
+  name: "read_file",
+  description: "读取用户上传的附件文件(txt/docx)内容。用户要求「看一下文件/读文件/文件里写了什么/帮我看这个文件」时调用。注意: 读取内容不等于保存, 只有用户明确要求加入剧本库时才用 add_script。",
+  parameters: {
+    type: "object",
+    properties: {
+      path: { type: "string", description: "附件在 data 目录下的路径, 如 data/uploads/chat/xxx.txt" },
+    },
+    required: ["path"],
   },
 };
 
@@ -91,14 +125,19 @@ export async function POST(req: NextRequest): Promise<Response> {
   const message = (b.message || "").trim();
   if (!message) return Response.json({ detail: "消息为空" }, { status: 400 });
 
-  // ---------- 附件: 图片 -> data URL; txt/docx -> 文本注入当前消息 ----------
+  // ---------- 附件: 图片 -> data URL; txt/docx -> 文本注入当前消息(附带 data 路径) ----------
   const images: string[] = [];
   let attachText = "";
+  const attachFiles: { name: string; path: string }[] = []; // txt/docx 附件(供 add_script 兜底 file_path)
   for (const u of (b.images || []).slice(0, 9)) {
     const img = localImageToDataUrl(u);
     if (img) { images.push(img); continue; }
     const at = await attachTextOf(u);
-    if (at) attachText += `\n\n[附件文件 ${at.name} 内容]\n${at.text}\n[/附件]`;
+    if (at) {
+      const dataPath = `data${u.slice(4)}`; // /api/uploads/... -> data/uploads/...
+      attachFiles.push({ name: at.name, path: dataPath });
+      attachText += `\n\n[附件文件 ${dataPath} 内容]\n${at.text}\n[/附件]`;
+    }
   }
 
   // ---------- 上下文 ----------
@@ -119,13 +158,20 @@ export async function POST(req: NextRequest): Promise<Response> {
   try {
     let scriptsChanged = false;
     const reply = await chat(apiKey, modelId, history, {
-      tools: [ADD_SCRIPT_TOOL],
+      tools: [ADD_SCRIPT_TOOL, READ_FILE_TOOL],
       onToolCall: async (name, args) => {
         if (name === "add_script") {
+          // 工具未传 file_path 且内容来自附件时, 用附件文件路径驼底
+          if (!String(args.file_path ?? "").trim() && attachFiles.length) {
+            args.file_path = attachFiles[0].path;
+          }
           const r = await execAddScript(args);
           const parsed = JSON.parse(r) as { ok?: boolean };
           if (parsed.ok) scriptsChanged = true;
           return r;
+        }
+        if (name === "read_file") {
+          return await execReadFile(args);
         }
         return JSON.stringify({ ok: false, detail: `未知工具 ${name}` });
       },
