@@ -220,6 +220,13 @@ export default function ChatModule() {
     }
   };
 
+  // 会话列表展示数据(过滤空会话, 最近在前)
+  const shownConvs = [...convs].filter((c) => c.messages.length > 0).sort((a, b) => b.updatedAt - a.updatedAt);
+  // 列表高度动态: 最小 3 行, 最多 10 行, 超出滚动(标题 ~34 + 行 x38 + 底部新对话 ~41)
+  const ROW = 38, TITLE = 34, NEWBTN = 41;
+  const rows = Math.min(10, Math.max(3, shownConvs.length));
+  const listHeight = TITLE + rows * ROW + NEWBTN;
+
   return (
     <div style={{ width: 460, display: "flex", flexDirection: "column", borderRadius: 12, border: "1px solid #e5e5e5", background: "#fff", overflow: "hidden" }}>
       {/* 对话区(左上角: 圆形会话列表按钮; 点击展开矩形列表) */}
@@ -233,7 +240,7 @@ export default function ChatModule() {
           style={{
             position: "absolute", top: 8, left: 8, zIndex: 20,
             width: listOpen ? 320 : 36,
-            height: listOpen ? 340 : 36,
+            height: listOpen ? listHeight : 36,
             borderRadius: listOpen ? 12 : "50%",
             background: "#fff",
             border: "1px solid #e5e5e5",
@@ -248,10 +255,17 @@ export default function ChatModule() {
           <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", opacity: listOpen ? 0 : 1, transition: "opacity .12s", pointerEvents: "none" }}>
             <UnorderedListOutlined style={{ fontSize: 14, color: "#888", display: "block" }} />
           </span>
-          {/* 展开态: 会话列表(形变后淡入) */}
+          {/* 展开态: 标题 + 会话列表(形变后淡入, 高 3~10 行动态) */}
           <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", opacity: listOpen ? 1 : 0, transition: "opacity .2s .1s" }}>
+            {/* 标题栏(固定在顶部) */}
+            <div style={{ flexShrink: 0, height: TITLE, display: "flex", alignItems: "center", padding: "0 12px", fontSize: 12, color: "#999", borderBottom: "1px solid #f5f5f5" }}>
+              对话列表
+            </div>
             <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
-              {[...convs].filter((c) => c.messages.length > 0).sort((a, b) => b.updatedAt - a.updatedAt).map((c) => (
+              {shownConvs.length === 0 && (
+                <div style={{ padding: 14, fontSize: 12, color: "#bbb", textAlign: "center" }}>暂无对话</div>
+              )}
+              {shownConvs.map((c) => (
                 <div
                   key={c.id}
                   className="conv-item"
@@ -264,7 +278,7 @@ export default function ChatModule() {
                 </div>
               ))}
             </div>
-            <div onClick={newConv} className="conv-new" style={{ flexShrink: 0, padding: "10px 12px", textAlign: "center", fontSize: 13, color: "#111", cursor: "pointer", borderTop: "1px solid #f5f5f5", userSelect: "none" }}>
+            <div onClick={newConv} className="conv-new" style={{ flexShrink: 0, height: NEWBTN, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#111", cursor: "pointer", borderTop: "1px solid #f5f5f5", userSelect: "none" }}>
               ＋ 新对话
             </div>
           </div>
