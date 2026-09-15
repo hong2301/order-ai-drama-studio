@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Button, Input, Modal, message } from "antd";
+import { App as AntApp, Button, Input, Modal } from "antd";
 import { FileOutlined, FilePdfOutlined, FileTextOutlined, FileWordOutlined, PaperClipOutlined, SendOutlined, UnorderedListOutlined } from "@ant-design/icons";
 
 interface Msg { role: "user" | "assistant"; content: string; images?: string[] }
@@ -72,6 +72,7 @@ function saveConvs(convs: Conv[], activeId: string | null): void {
 
 /** AI 对话模块(第一个模块, 无标题): 对话区 + 底部一体输入框(附件/发送) */
 export default function ChatModule() {
+  const { message } = AntApp.useApp(); // 上下文 message(消费动态主题), 替代静态 message
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);

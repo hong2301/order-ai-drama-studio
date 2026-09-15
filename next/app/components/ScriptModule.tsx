@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, ConfigProvider, DatePicker, Empty, Form, Input, Modal, Popconfirm, Table, Tabs, Upload, message } from "antd";
+import { App as AntApp, Button, ConfigProvider, DatePicker, Empty, Form, Input, Modal, Popconfirm, Table, Tabs, Upload } from "antd";
 import { DeleteOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import zhCN from "antd/locale/zh_CN";
@@ -35,6 +35,7 @@ function filePathOf(url: string): string {
 
 /** 剧本模块: 文件/提示词添加 + 拖拽 + 筛选 + 滚动加载 + 选择列批量删除 + 右键删除 */
 export default function ScriptModule() {
+  const { message } = AntApp.useApp(); // 上下文 message(消费动态主题), 替代静态 message
   const [items, setItems] = useState<Script[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
