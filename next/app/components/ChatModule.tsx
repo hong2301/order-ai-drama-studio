@@ -69,6 +69,7 @@ export default function ChatModule() {
   const [convs, setConvs] = useState<Conv[]>([]);       // 全部会话
   const [convId, setConvId] = useState<string | null>(null); // 当前会话 id
   const [listOpen, setListOpen] = useState(false);      // 会话列表面板是否展开
+  const [menu, setMenu] = useState<{ x: number; y: number; id: string } | null>(null); // 右键菜单
   const listRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
@@ -122,6 +123,22 @@ export default function ChatModule() {
     setMessages([]);
     setAtts([]);
     setListOpen(false);
+  };
+  // 删除会话(右键菜单触发); 删的是当前会话则切到最近一个, 全删光则新建空会话
+  const delConv = (id: string): void => {
+    setMenu(null);
+    const rest = convs.filter((c) => c.id !== id);
+    if (rest.length === 0) {
+      const c: Conv = { id: `c_${Date.now()}`, title: "新对话", updatedAt: Date.now(), messages: [] };
+      setConvs([c]); setConvId(c.id); setMessages([]); setAtts([]); saveConvs([c], c.id);
+      return;
+    }
+    if (id === convId) {
+      const fb = rest[rest.length - 1];
+      setConvId(fb.id); setMessages(fb.messages); setAtts([]);
+    }
+    setConvs(rest);
+    saveConvs(rest, id === convId ? rest[rest.length - 1].id : convId);
   };
 
   useEffect(() => {
@@ -188,37 +205,49 @@ export default function ChatModule() {
     <div style={{ width: 460, display: "flex", flexDirection: "column", borderRadius: 12, border: "1px solid #e5e5e5", background: "#fff", overflow: "hidden" }}>
       {/* 对话区(左上角: 圆形会话列表按钮; 点击展开矩形列表) */}
       <div ref={listRef} style={{ flex: 1, minHeight: 0, overflow: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 12, position: "relative" }}>
-        {/* 点击遮罩: 关闭列表面板 */}
+        {/* 点击遮罩: 收起会话列表 */}
         {listOpen && <div onClick={() => setListOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 13, background: "transparent" }} />}
-        {/* 圆形列表按钮 */}
-        <Button
-          shape="circle"
-          size="small"
-          icon={<UnorderedListOutlined style={{ fontSize: 14 }} />}
-          onClick={() => setListOpen((o) => !o)}
-          title="对话列表"
-          style={{ position: "absolute", top: 8, left: 8, zIndex: 15, color: "#888", border: "1px solid #e5e5e5" }}
-        />
-        {/* 矩形会话列表: 标题 + 上次对话时间 */}
-        {listOpen && (
-          <div style={{ position: "absolute", top: 44, left: 8, width: 320, maxHeight: 340, overflow: "auto", background: "#fff", borderRadius: 10, boxShadow: "0 4px 20px rgba(0,0,0,0.12)", border: "1px solid #eee", zIndex: 20 }}>
-            <div style={{ padding: "8px 12px", fontSize: 12, color: "#999", borderBottom: "1px solid #f5f5f5" }}>对话列表</div>
-            {convs.length === 0 && <div style={{ padding: 14, fontSize: 12, color: "#bbb", textAlign: "center" }}>暂无对话</div>}
-            {[...convs].sort((a, b) => b.updatedAt - a.updatedAt).map((c) => (
-              <div
-                key={c.id}
-                onClick={() => openConv(c.id)}
-                style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "9px 12px", cursor: "pointer", background: c.id === convId ? "#f5f5f5" : "#fff", borderBottom: "1px solid #f7f7f7" }}
-              >
-                <span style={{ flex: 1, fontSize: 13, color: "#111", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title || "新对话"}</span>
-                <span style={{ flexShrink: 0, fontSize: 11, color: "#bbb" }}>{fmtTime(c.updatedAt)}</span>
-              </div>
-            ))}
-            <div onClick={newConv} style={{ padding: "10px 12px", textAlign: "center", fontSize: 13, color: "#111", cursor: "pointer", borderTop: "1px solid #f5f5f5", userSelect: "none" }}>
+        {/* 圆形列表按钮 ⇄ 矩形会话列表(同一元素形变) */}
+        <div
+          onClick={listOpen ? undefined : () => setListOpen(true)}
+          title={listOpen ? undefined : "对话列表"}
+          style={{
+            position: "absolute", top: 8, left: 8, zIndex: 20,
+            width: listOpen ? 320 : 36,
+            height: listOpen ? 340 : 36,
+            borderRadius: listOpen ? 12 : "50%",
+            background: "#fff",
+            border: "1px solid #e5e5e5",
+            boxShadow: listOpen ? "0 4px 20px rgba(0,0,0,0.12)" : "0 1px 2px rgba(0,0,0,0.04)",
+            overflow: "hidden",
+            display: "flex", flexDirection: "column",
+            cursor: listOpen ? "default" : "pointer",
+            transition: "width .28s cubic-bezier(.4,0,.2,1), height .28s cubic-bezier(.4,0,.2,1), border-radius .28s cubic-bezier(.4,0,.2,1), box-shadow .28s",
+          }}
+        >
+          {/* 收起态: 居中列表图标(展开时淡出) */}
+          <UnorderedListOutlined style={{ fontSize: 14, color: "#888", position: "absolute", top: 11, left: 11, opacity: listOpen ? 0 : 1, transition: "opacity .12s" }} />
+          {/* 展开态: 会话列表(形变后淡入) */}
+          <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", opacity: listOpen ? 1 : 0, transition: "opacity .2s .1s" }}>
+            <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+              {[...convs].sort((a, b) => b.updatedAt - a.updatedAt).map((c) => (
+                <div
+                  key={c.id}
+                  className="conv-item"
+                  onClick={() => openConv(c.id)}
+                  onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenu({ x: e.clientX, y: e.clientY, id: c.id }); }}
+                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "9px 12px", cursor: "pointer", borderBottom: "1px solid #f7f7f7", flexShrink: 0, background: c.id === convId ? "#f5f5f5" : undefined }}
+                >
+                  <span style={{ flex: 1, fontSize: 13, color: "#111", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title || "新对话"}</span>
+                  <span style={{ flexShrink: 0, fontSize: 11, color: "#bbb" }}>{fmtTime(c.updatedAt)}</span>
+                </div>
+              ))}
+            </div>
+            <div onClick={newConv} className="conv-new" style={{ flexShrink: 0, padding: "10px 12px", textAlign: "center", fontSize: 13, color: "#111", cursor: "pointer", borderTop: "1px solid #f5f5f5", userSelect: "none" }}>
               ＋ 新对话
             </div>
           </div>
-        )}
+        </div>
         {messages.length === 0 && !sending && (
           <div style={{ color: "#aaa", fontSize: 13, textAlign: "center", marginTop: 48 }}>
             <div style={{ fontSize: 30, marginBottom: 10 }}>🎬</div>
@@ -347,6 +376,22 @@ export default function ChatModule() {
             />
           </div>
       </div>
+
+      {/* 会话右键菜单: 删除 */}
+      {menu && (
+        <>
+          <div
+            onClick={() => setMenu(null)}
+            onContextMenu={(e) => { e.preventDefault(); setMenu(null); }}
+            style={{ position: "fixed", inset: 0, zIndex: 30 }}
+          />
+          <div style={{ position: "fixed", top: menu.y, left: menu.x, zIndex: 31, minWidth: 96, background: "#fff", border: "1px solid #eee", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.16)", overflow: "hidden" }}>
+            <div className="conv-menu-item" onClick={() => delConv(menu.id)} style={{ padding: "8px 14px", fontSize: 13, color: "#ff4d4f", cursor: "pointer" }}>
+              删除
+            </div>
+          </div>
+        </>
+      )}
 
       {/* 图片点击预览: 弹窗标题显示文件名 */}
       <Modal open={!!preview} footer={null} closable onCancel={() => setPreview(null)} width={800} style={{ top: 30 }} title={preview?.name}>

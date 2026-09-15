@@ -32,6 +32,11 @@ body {
 .att-item .att-del { opacity: 0; transition: opacity 0.15s; }
 .att-item:hover .att-del { opacity: 1; }
 
+/* 会话列表项 / 新建对话 / 右键菜单项: hover 反馈 */
+.conv-item:hover { background: #fafafa; }
+.conv-new:hover { background: #fafafa; }
+.conv-menu-item:hover { background: #fafafa; }
+
 /* 对话气泡滚动条(可选) */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-thumb { background: #ddd; border-radius: 3px; }
