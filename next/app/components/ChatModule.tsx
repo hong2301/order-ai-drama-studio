@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { App as AntApp, Button, Input, Modal } from "antd";
+import { App as AntApp, Button, Dropdown, Input, Modal, Spin } from "antd";
 import { FileOutlined, FilePdfOutlined, FileTextOutlined, FileWordOutlined, LoadingOutlined, PaperClipOutlined, SendOutlined, UnorderedListOutlined } from "@ant-design/icons";
 
 interface Msg { role: "user" | "assistant"; content: string; images?: string[] }
 interface Att { name: string; url: string }
 interface Conv { id: string; title: string; updatedAt: number; messages: Msg[] }
+// 全模型(对话模块切换用; 服务端已过滤为可输入 图片/视频/文本 的多模态对话模型, 含综合费用/百万token)
+interface ArkModel { id: string; label: string; price: number }
 
 const MAX_ATTACH = 9; // 最多 9 个附件
 
@@ -84,6 +86,11 @@ export default function ChatModule() {
   const [convId, setConvId] = useState<string | null>(null); // 当前会话 id
   const [listOpen, setListOpen] = useState(false);      // 会话列表面板是否展开
   const [menu, setMenu] = useState<{ x: number; y: number; id: string } | null>(null); // 右键菜单
+  // 模型切换: 服务端已适配好的多模态对话模型
+  const [arkModels, setArkModels] = useState<ArkModel[]>([]);
+  const [chatModel, setChatModel] = useState<string | null>(null); // null = 用服务端默认模型
+  const [modelOpen, setModelOpen] = useState(false); // 模型下拉面板开关
+  const [loadingModels, setLoadingModels] = useState(false); // 模型加载中
   const listRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
@@ -105,6 +112,23 @@ export default function ChatModule() {
     setMessages(cur.messages);
     setLoading(false);
   }, []);
+
+  // 加载已适配的多模态对话模型(默认选中 .env 配置的模型)
+  useEffect(() => {
+    setLoadingModels(true);
+    fetch("/api/models")
+      .then((r) => r.json())
+      .then((j) => {
+        if (!j.ok) throw new Error(j.detail);
+        setArkModels((j.models || []) as ArkModel[]);
+        if (j.default && (j.models || []).some((m: ArkModel) => m.id === j.default)) setChatModel(j.default as string);
+      })
+      .catch((e) => message.error(`加载模型失败: ${(e as Error).message}`))
+      .finally(() => setLoadingModels(false));
+  }, [message]);
+
+  // 当前选中模型的展示名
+  const curChatModel = arkModels.find((m) => m.id === chatModel) || null;
 
   // 当前会话消息变化: 自动保存内容(标题/消息), 但**不**更新时间戳
   // (时间只在真正发消息时由 touchConv 更新, 否则切换会话查看会把时间刷成"刚刚")
@@ -228,7 +252,7 @@ export default function ChatModule() {
       const r = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, images, messages }),
+        body: JSON.stringify({ message: text, images, messages, ...(chatModel ? { model: chatModel } : {}) }),
       });
       const j = (await r.json()) as { detail?: string; reply?: string; scriptsChanged?: boolean };
       if (!r.ok) throw new Error(j.detail || `HTTP ${r.status}`);
@@ -424,7 +448,7 @@ export default function ChatModule() {
             style={{ fontSize: 13, lineHeight: 1.7, resize: "none", padding: "4px 0" }}
           />
 
-          {/* 工具栏: 附件按钮紧挨发送按钮左边 */}
+          {/* 工具栏: 模型切换(左) + 附件 + 发送(右) */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, paddingTop: 4 }}>
             <input
               ref={fileRef}
@@ -434,6 +458,50 @@ export default function ChatModule() {
               style={{ display: "none" }}
               onChange={(e) => void handleFiles(e.target.files)}
             />
+            <Dropdown
+              open={modelOpen}
+              onOpenChange={(o) => setModelOpen(o)}
+              trigger={["click"]}
+              popupRender={() => (
+                <div style={{ width: 300, background: "#fff", borderRadius: 10, border: "1px solid #e5e5e5", boxShadow: "0 4px 20px rgba(0,0,0,0.14)", overflow: "hidden" }}>
+                  {/* 模型列表(服务端已适配为可看图/视频/文本的对话模型) */}
+                  <div style={{ maxHeight: 260, overflowY: "auto", padding: 4 }}>
+                    {loadingModels ? (
+                      <div style={{ padding: 18, textAlign: "center", color: "#999", fontSize: 12 }}>
+                        <Spin size="small" style={{ marginRight: 6 }} />加载中…
+                      </div>
+                    ) : arkModels.length === 0 ? (
+                      <div style={{ padding: 16, textAlign: "center", color: "#bbb", fontSize: 12 }}>暂无已适配模型</div>
+                    ) : (
+                      arkModels.map((m) => (
+                        <div
+                          key={m.id}
+                          onClick={() => { setChatModel(m.id); setModelOpen(false); }}
+                          style={{
+                            display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8,
+                            padding: "7px 10px", fontSize: 13, cursor: "pointer", borderRadius: 6,
+                            color: m.id === chatModel ? "#111" : "#333", background: m.id === chatModel ? "#f5f5f5" : undefined,
+                          }}
+                        >
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{m.label}</span>
+                          <span style={{ fontSize: 11, color: "#999", flexShrink: 0 }}>¥{m.price}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            >
+              <Button
+                size="large"
+                style={{ height: 40, maxWidth: 180, display: "inline-flex", alignItems: "center", overflow: "hidden" }}
+                title={curChatModel ? curChatModel.label : "切换模型"}
+              >
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {curChatModel ? curChatModel.label : "切换模型"}
+                </span>
+              </Button>
+            </Dropdown>
             <div style={{ flex: 1 }} />
             <Button
               type="default"

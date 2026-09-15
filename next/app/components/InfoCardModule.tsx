@@ -37,7 +37,7 @@ export default function InfoCardModule(props: {
   showIdentity?: boolean;   // 是否展示身份(类型/品类)字段(场景/产品不需要)
 }) {
   const { title, api, identityLabel, identityPlaceholder, showIdentity = true } = props;
-  const { message } = AntApp.useApp();
+  const { message, modal } = AntApp.useApp();
 
   const [items, setItems] = useState<CardItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -63,7 +63,10 @@ export default function InfoCardModule(props: {
   const importFolderRef = useRef<HTMLInputElement | null>(null);  // 选择文件夹(webkitdirectory)
   const [pasteContent, setPasteContent] = useState("");
   const [newIdTag, setNewIdTag] = useState(""); // 手动添加的身份标签输入
-  const [editing, setEditing] = useState<{ id: number; value: string } | null>(null); // 提示词行内编辑
+  const [editPrompt, setEditPrompt] = useState<{ open: boolean; id: number; value: string }>({ open: false, id: 0, value: "" }); // 提示词弹窗编辑
+  const activeScriptRef = useRef<number | null>(null); // 当前联动剧本 id(反向写回用)
+  const [idAdding, setIdAdding] = useState<number | null>(null); // 正在新增身份的记录 id
+  const [newIdText, setNewIdText] = useState("");
   const linkRef = useRef<number[] | null>(null); // 待置顶的联动 id
   const [form] = Form.useForm();
 
@@ -148,7 +151,21 @@ export default function InfoCardModule(props: {
     const onLink = (e: Event): void => {
       const d = (e as CustomEvent).detail as {
         chars: number[]; scenes: number[]; prods: number[];
+        unlink?: boolean;
+        scriptId?: number | null;
       };
+      // 记录当前联动剧本(反向写回用)
+      activeScriptRef.current = d.unlink ? null : (d.scriptId ?? null);
+      // 取消剧本选中: 撤掉之前联动选中的记录, 恢复原列表
+      if (d.unlink) {
+        const linked = linkRef.current || [];
+        if (linked.length) {
+          setSelected((prev) => prev.filter((n) => !linked.includes(n)));
+          void load(1, false, filterRef.current.kw);
+        }
+        linkRef.current = [];
+        return;
+      }
       const type = api.split("/").filter(Boolean).pop(); // characters/scenes/products
       const ids = type === "characters" ? d.chars : type === "scenes" ? d.scenes : d.prods;
       if (!ids || !ids.length) return;
@@ -172,6 +189,41 @@ export default function InfoCardModule(props: {
     setNewIdTag("");
   };
 
+  // 保存该记录的 identity 数组
+  const saveIdentity = async (id: number, next: string[]): Promise<void> => {
+    try {
+      const r = await fetch(`${api}/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identity: next }),
+      });
+      const j = (await r.json()) as { detail?: string; ok?: boolean };
+      if (!r.ok) throw new Error(j.detail || "保存失败");
+      setItems((prev) => prev.map((x) => (x.id === id ? { ...x, identity: next } : x)));
+    } catch (e) {
+      message.error((e as Error).message);
+    }
+  };
+
+  // 新增身份(追加到末尾)
+  const addIdentity = async (rec: CardItem, val: string): Promise<void> => {
+    const t = val.trim();
+    if (!t) return;
+    if (rec.identity.includes(t)) { message.warning("该身份已存在"); return; }
+    await saveIdentity(rec.id, [...rec.identity, t]);
+    setIdAdding(null);
+    setNewIdText("");
+  };
+
+  // 右键删除身份(二次确认)
+  const removeIdentity = (rec: CardItem, val: string): void => {
+    modal.confirm({
+      title: `删除身份「${val}」？`,
+      okText: "删除", cancelText: "取消", okButtonProps: { danger: true },
+      onOk: async () => { await saveIdentity(rec.id, rec.identity.filter((t) => t !== val)); },
+    });
+  };
+
   // 切换默认身份: 选中项移到数组首位并入库
   const setDefaultIdentity = async (id: number, arr: string[], val: string): Promise<void> => {
     if (!val) return;
@@ -190,9 +242,9 @@ export default function InfoCardModule(props: {
     }
   };
 
-  // 提示词行内编辑保存(部分更新 PUT, 其他字段保留)
+  // 提示词弹窗保存(部分更新 PUT, 其他字段保留)
   const savePrompt = async (id: number, value: string): Promise<void> => {
-    setEditing(null);
+    setEditPrompt((p) => ({ ...p, open: false }));
     try {
       const r = await fetch(`${api}/${id}`, {
         method: "PUT",
@@ -221,7 +273,6 @@ export default function InfoCardModule(props: {
       message.success("已添加");
       setModalOpen(false);
       setPickedImgs([]);
-      form.resetFields();
       setSelected([]);
       applyFilter();
     } catch (e) {
@@ -268,7 +319,32 @@ export default function InfoCardModule(props: {
   };
 
   const toggleSelect = (id: number): void => {
-    setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    setSelected((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      // 反向联动: 勾选变化立即写回当前联动剧本
+      syncScript(next);
+      return next;
+    });
+  };
+
+  // 本库类型 -> 剧本表字段名
+  const scriptFieldOf = (): string => {
+    const type = api.split("/").filter(Boolean).pop();
+    return type === "characters" ? "character_ids" : type === "scenes" ? "scene_ids" : "product_ids";
+  };
+
+  /** 反向联动: 勾选变化写回当前选中剧本的物料 ids(选择其他剧本/取消时跳过) */
+  const syncScript = (ids: number[]): void => {
+    const sid = activeScriptRef.current;
+    if (!sid) return;
+    fetch(`/api/scripts/${sid}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ [scriptFieldOf()]: ids }),
+    })
+      .then((r) => r.json())
+      .then((j) => { if (j.ok) window.dispatchEvent(new Event("scripts-changed")); })
+      .catch(() => { /* 静默 */ });
   };
 
   const openAdd = (): void => {
@@ -300,10 +376,49 @@ export default function InfoCardModule(props: {
                   size="small"
                   variant="borderless"
                   value={v[0]}
-                  options={v.map((t) => ({ label: t, value: t }))}
+                  options={v.map((t) => ({
+                    value: t,
+                    label: (
+                      <div
+                        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); removeIdentity(rec, t); }}
+                        title="右键删除该身份"
+                      >
+                        {t}
+                      </div>
+                    ),
+                  }))}
                   onChange={(val) => void setDefaultIdentity(rec.id, v, val)}
+                  onOpenChange={(open) => { if (!open) { setIdAdding(null); setNewIdText(""); } }}
                   style={{ width: "100%", fontSize: 12 }}
                   popupMatchSelectWidth={false}
+                  popupRender={(menu) => (
+                    <>
+                      {menu}
+                      <div
+                        style={{ borderTop: "1px solid #f0f0f0", padding: "4px 6px" }}
+                        onMouseDown={(e) => e.preventDefault()}
+                      >
+                        {idAdding === rec.id ? (
+                          <Input
+                            size="small"
+                            autoFocus
+                            value={newIdText}
+                            onChange={(e) => setNewIdText(e.target.value)}
+                            onPressEnter={() => void addIdentity(rec, newIdText)}
+                            placeholder="输入新身份后回车"
+                          />
+                        ) : (
+                          <div
+                            className="conv-menu-item"
+                            onClick={() => { setIdAdding(rec.id); setNewIdText(""); }}
+                            style={{ fontSize: 12, color: "#666", cursor: "pointer", padding: "3px 4px", borderRadius: 4 }}
+                          >
+                            ＋ 新增身份
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
                 />
               </div>
             );
@@ -314,23 +429,10 @@ export default function InfoCardModule(props: {
       title: "提示词", dataIndex: "prompt", key: "prompt",
       ellipsis: true,
       render: (v: string, rec) => {
-        if (editing?.id === rec.id) {
-          return (
-            <Input
-              size="small"
-              defaultValue={editing.value}
-              autoFocus
-              onPressEnter={(e) => void savePrompt(rec.id, (e.target as HTMLInputElement).value)}
-              onBlur={(e) => void savePrompt(rec.id, e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Escape") setEditing(null); }}
-              style={{ width: "100%", fontSize: 12 }}
-            />
-          );
-        }
         return (
           <Tooltip title={v || "点击编辑"} placement="leftTop">
             <span
-              onClick={(e) => { e.stopPropagation(); setEditing({ id: rec.id, value: v || "" }); }}
+              onClick={(e) => { e.stopPropagation(); setEditPrompt({ open: true, id: rec.id, value: v || "" }); }}
               style={{ fontSize: 12, color: v ? "#888" : "#ccc", cursor: "text" }}
             >
               {v || "—"}
@@ -413,7 +515,7 @@ export default function InfoCardModule(props: {
               onClick: () => toggleSelect(rec.id),
             })}
             rowClassName={(rec) => (selected.includes(rec.id) ? "script-row-active" : "")}
-            rowSelection={{ selectedRowKeys: selected, onChange: (keys) => setSelected(keys as number[]) }}
+            rowSelection={{ selectedRowKeys: selected, onChange: (keys) => { setSelected(keys as number[]); syncScript(keys as number[]); } }}
           />
         </ConfigProvider>
         {loadingMore && <div style={{ textAlign: "center", padding: 8, fontSize: 12, color: "#bbb" }}>加载中…</div>}
@@ -430,8 +532,33 @@ export default function InfoCardModule(props: {
         </>
       )}
 
+      {/* 提示词编辑弹窗(点击提示词列打开) */}
+      <Modal open={editPrompt.open} title="编辑提示词" onCancel={() => setEditPrompt((p) => ({ ...p, open: false }))} footer={null} width={520} destroyOnHidden>
+        <Input.TextArea
+          value={editPrompt.value}
+          onChange={(e) => setEditPrompt((p) => ({ ...p, value: e.target.value }))}
+          autoSize={{ minRows: 4, maxRows: 10 }}
+          placeholder="提示词 / 描述（留空显示 —）"
+          style={{ fontSize: 13 }}
+        />
+        <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <Button onClick={() => setEditPrompt((p) => ({ ...p, open: false }))}>取消</Button>
+          <Button
+            type="primary"
+            onClick={() => {
+              const pid = editPrompt.id;
+              const pv = editPrompt.value;
+              setEditPrompt((p) => ({ ...p, open: false }));
+              void savePrompt(pid, pv);
+            }}
+          >
+            保存
+          </Button>
+        </div>
+      </Modal>
+
       {/* 新增弹窗: 手动填写 / 粘贴提示词 / 上传文件或文件夹 */}
-      <Modal open={modalOpen} title={`新增${title}`} onCancel={() => { setModalOpen(false); setPickedImgs([]); setPasteContent(""); setNewIdTag(""); form.resetFields(); }} footer={null} width={460} destroyOnHidden>
+      <Modal open={modalOpen} title={`新增${title}`} onCancel={() => { setModalOpen(false); setPickedImgs([]); setPasteContent(""); setNewIdTag(""); }} footer={null} width={460} destroyOnHidden>
         <Tabs
           size="small"
           items={[

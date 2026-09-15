@@ -1,0 +1,121 @@
+// 火山方舟(豆包) 视频生成 provider — OpenAI 兼容异步任务接口
+// 创建: POST /api/v3/contents/generations/tasks  查询: GET .../tasks/{id}
+import fs from "fs";
+import path from "path";
+import { dataDir } from "@/lib/server/db";
+import type { VideoProvider, VideoProviderTask, VideoSubmitRequest, VideoTaskStatus } from "../types";
+
+const ARK_API = "https://ark.cn-beijing.volces.com/api/v3";
+
+function apiKey(): string {
+  const k = process.env.DOUBAO_API_KEY || "";
+  if (!k) throw new Error("未配置 DOUBAO_API_KEY(见项目根 .env)");
+  return k;
+}
+
+/** 本地 /api/uploads/... 路径 -> 公网不可达, 转 data URL(方舟接受 base64); 公网 URL 原样返回 */
+function toWireUrl(url: string): string {
+  const m = /^\/api\/uploads\/([\w-]+)\/([\w.-]+)$/.exec(url);
+  if (!m) return url;
+  const file = path.join(dataDir(), "uploads", m[1], m[2]);
+  if (!fs.existsSync(file)) throw new Error(`附件不存在: ${url}`);
+  const ext = path.extname(file).slice(1).toLowerCase();
+  const mime: Record<string, string> = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp" };
+  const type = mime[ext] || "application/octet-stream";
+  return `data:${type};base64,${fs.readFileSync(file).toString("base64")}`;
+}
+
+const STATUS_MAP: Record<string, VideoTaskStatus> = {
+  queued: "queued", running: "running", succeeded: "succeeded", failed: "failed", cancelled: "cancelled",
+};
+
+async function request<T>(pathname: string, init?: RequestInit): Promise<T> {
+  const resp = await fetch(`${ARK_API}${pathname}`, {
+    ...init,
+    headers: { Authorization: `Bearer ${apiKey()}`, "Content-Type": "application/json", ...(init?.headers || {}) },
+  });
+  const text = await resp.text();
+  if (!resp.ok) {
+    let code = `HTTP${resp.status}`;
+    let detail = "";
+    try {
+      const j = JSON.parse(text);
+      code = j.error?.code || code;
+      detail = j.error?.message || "";
+    } catch { /* ignore */ }
+    throw new Error(`${code}${detail ? `: ${detail}` : ""}`);
+  }
+  return JSON.parse(text) as T;
+}
+
+/** 按模型能力把"一张输入图"转成方舟期望的 content 类型 */
+function imageContentType(model: string): "image_url" | "first_frame" {
+  // 1-0-pro 系列声明 first_frame; fast 及新系列声明 image
+  return model.includes("seedance-1-0-pro-250528") ? "first_frame" : "image_url";
+}
+
+async function postTask(body: Record<string, unknown>): Promise<{ id: string; status?: string }> {
+  return request<{ id: string; status?: string }>("/contents/generations/tasks", { method: "POST", body: JSON.stringify(body) });
+}
+
+/** 提交并容错: 个别模型不支持某参数(InvalidParameter)时, 自动去掉该参数重试(便于扩展新模型) */
+async function submitWithFallback(body: Record<string, unknown>): Promise<{ id: string; status?: string }> {
+  try {
+    return await postTask(body);
+  } catch (e) {
+    if (!/InvalidParameter/.test((e as Error).message)) throw e;
+    for (const k of ["duration", "resolution", "ratio"] as const) {
+      if (body[k] !== undefined) {
+        const next = { ...body };
+        delete next[k];
+        try {
+          return await postTask(next);
+        } catch (e2) {
+          if (!/InvalidParameter/.test((e2 as Error).message)) throw e2;
+        }
+      }
+    }
+    throw e;
+  }
+}
+
+export const doubaoVideo: VideoProvider = {
+  id: "doubao",
+  name: "火山方舟(豆包)",
+
+  async submit(req: VideoSubmitRequest) {
+    const out: Record<string, unknown> = {
+      text: req.prompt?.trim() ? [{ type: "text", text: req.prompt.trim() }] : [],
+    };
+    const content: Record<string, unknown>[] = out.text as Record<string, unknown>[];
+    if (req.imageUrl) {
+      const url = toWireUrl(req.imageUrl);
+      const t = imageContentType(req.model);
+      if (t === "first_frame") content.push({ type: "first_frame", first_frame: { url } });
+      else content.push({ type: "image_url", image_url: { url } });
+    }
+    if (req.lastFrameUrl) content.push({ type: "last_frame", last_frame: { url: toWireUrl(req.lastFrameUrl) } });
+    if (!content.length) throw new Error("至少需要提示词或图片");
+
+    const body: Record<string, unknown> = { model: req.model, content };
+    if (req.resolution) body.resolution = req.resolution;
+    if (req.ratio) body.ratio = req.ratio;
+    if (req.duration) body.duration = req.duration; // 数字(方舟要求数值型, 字符串会 InvalidParameter)
+
+    const r = await submitWithFallback(body);
+    return { id: r.id, status: STATUS_MAP[r.status || "queued"] ?? "queued" };
+  },
+
+  async get(taskId: string) {
+    const r = await request<{
+      status?: string; content?: { video_url?: string } | null; error?: { code?: string; message?: string } | null;
+    }>(`/contents/generations/tasks/${taskId}`);
+    const out: VideoProviderTask = {
+      id: taskId,
+      status: STATUS_MAP[r.status || "queued"] ?? "queued",
+      videoUrl: r.content?.video_url || null,
+      error: r.error ? `${r.error.code || "ERR"}${r.error.message ? `: ${r.error.message}` : ""}` : null,
+    };
+    return out;
+  },
+};

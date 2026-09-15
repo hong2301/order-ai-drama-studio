@@ -20,7 +20,7 @@ const TEXT_MAX = 8000;
 
 const PARSE_TOOL: ToolDef = {
   name: "parse_script",
-  description: "从剧本内容中解析出人物/场景/产品、清晰度/时长/比例与关键词",
+  description: "从剧本内容中解析出人物/场景/产品、清晰度/时长/比例与关键词。注意: 各项 prompt 只写该对象用于画面生成的视觉描述, 不要包含身份/类型标签、清晰度/时长/比例等配置信息(它们已有独立字段, 生成时会另行拼接)。",
   parameters: {
     type: "object",
     properties: {
@@ -31,7 +31,7 @@ const PARSE_TOOL: ToolDef = {
           properties: {
             name: { type: "string", description: "角色名称" },
             identity: { type: "array", items: { type: "string" }, description: "身份标签数组, 如 主角/婆婆" },
-            prompt: { type: "string", description: "该角色的简要提示词/描述" },
+            prompt: { type: "string", description: "角色的视觉画面描述提示词(年龄外貌/服装/气质等, 不含身份标签与视频配置)" },
           },
           required: ["name"],
         },
@@ -43,7 +43,7 @@ const PARSE_TOOL: ToolDef = {
           properties: {
             name: { type: "string", description: "场景名称" },
             identity: { type: "array", items: { type: "string" }, description: "类型标签数组, 如 客厅/夜晚" },
-            prompt: { type: "string", description: "场景描述提示词" },
+            prompt: { type: "string", description: "场景视觉描述提示词(环境/灯光/色调等, 不含类型标签与视频配置)" },
           },
           required: ["name"],
         },
@@ -55,7 +55,7 @@ const PARSE_TOOL: ToolDef = {
           properties: {
             name: { type: "string", description: "产品名称" },
             identity: { type: "array", items: { type: "string" }, description: "品类标签数组, 如 保健品" },
-            prompt: { type: "string", description: "产品描述提示词" },
+            prompt: { type: "string", description: "产品外观/卖点画面描述提示词(包装/质感等, 不含品类标签与视频配置)" },
           },
           required: ["name"],
         },
@@ -113,6 +113,7 @@ export async function parseScript(scriptId: number): Promise<{ ok: boolean; deta
     "3) products: 出现的产品(每个给 name/identity 品类标签/prompt 描述); 没有就空数组",
     "4) resolution/duration/ratio: 仅当剧本明确提到清晰度/时长/画面比例时提取, 否则留空字符串",
     "5) keywords: 关键词 3~8 个——必须剔除 characters/scenes/products 的名称和身份标签等已知信息后, 提炼题材/风格/情绪/情节关键词(如 亲情/怀旧/带货/反转)",
+    "6) 重要: 各 prompt 只写画面/视觉描述(如角色外貌服装、场景环境光线、产品外观质感), 严禁把 身份/类型标签、清晰度/时长/比例 等配置信息写进 prompt——它们是独立字段, 生成视频时会另行拼接成完整提示词",
   ].join("\n");
 
   const result: { value: Record<string, unknown> | null } = { value: null };

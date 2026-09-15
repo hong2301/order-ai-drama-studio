@@ -1,5 +1,5 @@
 // 剧本文件上传: POST /api/scripts/upload multipart(file)
-// 支持 txt(文本) / docx(word, 含图片提取); 读取内容存 content, 原文件存 uploads/scripts/
+// 支持 txt / md(文本) / docx(word, 含图片提取); 读取内容存 content, 原文件存 uploads/scripts/
 import type { NextRequest } from "next/server";
 import fs from "fs";
 import path from "path";
@@ -10,7 +10,7 @@ import { dataDir } from "@/lib/server/db";
 export const dynamic = "force-dynamic";
 
 const MAX_BYTES = 50 * 1024 * 1024;
-const ALLOW_EXT = ["txt", "docx"];
+const ALLOW_EXT = ["txt", "md", "docx"];
 
 export async function POST(req: NextRequest): Promise<Response> {
   let form: FormData;
@@ -23,7 +23,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
   if (file.size > MAX_BYTES) return Response.json({ detail: "文件过大(上限 50MB)" }, { status: 400 });
   const ext = (file.name.split(".").pop() || "").toLowerCase();
-  if (!ALLOW_EXT.includes(ext)) return Response.json({ detail: "仅支持 txt / word(.docx) 文件" }, { status: 400 });
+  if (!ALLOW_EXT.includes(ext)) return Response.json({ detail: "仅支持 txt / md / word(.docx) 文件" }, { status: 400 });
 
   const buf = Buffer.from(await file.arrayBuffer());
 

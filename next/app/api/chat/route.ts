@@ -7,7 +7,7 @@ import mammoth from "mammoth";
 import { chat, DoubaoError, type ChatMsg, type ToolDef } from "@/lib/server/doubao";
 import { dataDir, getDb, persist } from "@/lib/server/db";
 
-type Body = { message?: string; images?: string[]; messages?: ChatMsg[] };
+type Body = { message?: string; images?: string[]; messages?: ChatMsg[]; model?: string };
 
 const MIME: Record<string, string> = {
   jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
@@ -207,7 +207,8 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   const apiKey = process.env.DOUBAO_API_KEY || "";
   if (!apiKey) return Response.json({ detail: "未配置 DOUBAO_API_KEY(见项目根 .env)" }, { status: 400 });
-  const modelId = process.env.DOUBAO_CHAT_MODEL || "doubao-seed-2-0-mini-260428";
+  // 模型优先级: 前端传入 > 环境变量 > 默认(前端切换模型时传)
+  const modelId = String(b.model || "").trim() || process.env.DOUBAO_CHAT_MODEL || "doubao-seed-2-0-mini-260428";
 
   try {
     let scriptsChanged = false;

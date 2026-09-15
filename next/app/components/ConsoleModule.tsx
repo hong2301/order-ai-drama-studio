@@ -1,44 +1,128 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { App as AntApp, Button, InputNumber, Segmented, Space } from "antd";
+import { useEffect, useRef, useState } from "react";
+import { App as AntApp, Button, InputNumber, Segmented, Select, Space } from "antd";
 import { PlayCircleOutlined } from "@ant-design/icons";
 
-/** 控制台模块: 视频生成基础参数(分辨率/比例/时长) + 底部工具栏(开始生成) */
+// ---------------- 类型 ----------------
+interface VideoModelDef {
+  key: string; provider: string; model: string; name: string;
+  status: "active" | "retiring" | "inactive"; note?: string;
+  pricePerSecond?: number;
+}
+
+const MODEL_STATUS_TXT: Record<string, string> = { active: "可用", retiring: "即将下线", inactive: "未开通" };
+
+/** 视频控制台模块: 模型切换 + 生成参数(分辨率/比例/时长) + 开始生成 */
 export default function ConsoleModule() {
   const { message } = AntApp.useApp();
-  const [resolution, setResolution] = useState<string>("1080P");
-  const [ratio, setRatio] = useState<string>("9:16");
-  const [duration, setDuration] = useState<number>(15);
+  const [models, setModels] = useState<VideoModelDef[]>([]);
+  const [modelKey, setModelKey] = useState<string>("");
 
-  // 剧本联动: 选中剧本时同步其解析出的 分辨率/比例/时长(没有的保留默认)
+  const [resolution, setResolution] = useState<string>("720P");
+  const [ratio, setRatio] = useState<string>("9:16");
+  const [duration, setDuration] = useState<number>(10);
+  const [prompt, setPrompt] = useState<string>(""); // 来自剧本联动(选中剧本自动带入)
+
+  const [generating, setGenerating] = useState(false);
+  // 反向联动: 当前联动剧本 id + 写回防抖
+  const activeScriptRef = useRef<number | null>(null);
+  const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /** 参数修改写回当前选中剧本(防抖 400ms; 未选中剧本时跳过) */
+  const syncToScript = (patch: Record<string, unknown>): void => {
+    const sid = activeScriptRef.current;
+    if (!sid) return;
+    if (syncTimer.current) clearTimeout(syncTimer.current);
+    syncTimer.current = setTimeout(() => {
+      fetch(`/api/scripts/${sid}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      })
+        .then((r) => r.json())
+        .then((j) => { if (j.ok) window.dispatchEvent(new Event("scripts-changed")); })
+        .catch(() => { /* 静默 */ });
+    }, 400);
+  };
+
+  // 加载视频模型(仅显示可用的; 未开通/已下线的不展示)
+  useEffect(() => {
+    fetch("/api/video/models")
+      .then((r) => r.json())
+      .then((j) => {
+        if (!j.ok) throw new Error(j.detail);
+        const list = (j.models as VideoModelDef[]).filter((m) => m.status !== "inactive");
+        setModels(list);
+        const first = list.find((m) => m.status === "active") || list[0];
+        if (first) setModelKey(first.key);
+      })
+      .catch((e) => message.error(`加载模型失败: ${(e as Error).message}`));
+  }, [message]);
+
+  // 剧本联动: 选中剧本时同步 分辨率/比例/时长 + 提示词(剧本内容)
   useEffect(() => {
     const onLink = (e: Event): void => {
-      const d = (e as CustomEvent).detail as { resolution?: string; duration?: string; ratio?: string };
+      const d = (e as CustomEvent).detail as { resolution?: string; duration?: string; ratio?: string; prompt?: string; unlink?: boolean; scriptId?: number | null };
+      // 记录当前联动剧本(反向写回用)
+      activeScriptRef.current = d.unlink ? null : (d.scriptId ?? null);
+      // 取消剧本选中: 参数恢复默认
+      if (d.unlink) {
+        if (syncTimer.current) clearTimeout(syncTimer.current);
+        setResolution("720P");
+        setRatio("9:16");
+        setDuration(10);
+        setPrompt("");
+        return;
+      }
       if (d.resolution) setResolution(d.resolution);
       if (d.ratio) setRatio(d.ratio);
-      if (d.duration) setDuration(Number(d.duration) || 15);
+      if (d.duration) setDuration(Number(d.duration) || 10);
+      if (d.prompt) setPrompt(d.prompt);
     };
     window.addEventListener("library-link", onLink);
     return () => window.removeEventListener("library-link", onLink);
   }, []);
 
-  const start = (): void => {
-    // TODO: 接入视频生成流程后在此触发
-    message.info(`开始生成: ${ratio} ${resolution} · ${duration}秒`);
+  const curModel = models.find((m) => m.key === modelKey);
+
+  const start = async (): Promise<void> => {
+    const mk = modelKey || models[0]?.key;
+    if (!mk) { message.error("未选择模型"); return; }
+    if (!prompt.trim()) { message.warning("请先在剧本库选中一个剧本(生成内容自动带入)"); return; }
+    setGenerating(true);
+    try {
+      const r = await fetch("/api/video/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          modelKey: mk,
+          prompt: prompt.trim(),
+          resolution,
+          ratio,
+          duration,
+        }),
+      });
+      const j = (await r.json()) as { ok?: boolean; detail?: string; task?: { id?: string; status?: string } };
+      if (!r.ok || !j.ok) throw new Error(j.detail || `HTTP ${r.status}`);
+      message.success(`已提交生成任务，约 1-3 分钟完成`);
+    } catch (e) {
+      message.error((e as Error).message);
+    } finally {
+      setGenerating(false);
+    }
   };
 
-  // 参数行公共样式
   const rowWrap: React.CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 };
   const labelStyle: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: "#222", flexShrink: 0, whiteSpace: "nowrap", width: 64 };
 
   return (
     <div style={{ flex: 1, minHeight: 0, width: "100%", display: "flex", flexDirection: "column", borderRadius: 12, border: "3px solid #111", background: "#fff", overflow: "hidden" }}>
-      {/* 参数区(无标题) */}
+      {/* 参数区 */}
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 14 }}>
         <div style={rowWrap}>
           <span style={labelStyle}>分辨率</span>
-          <Segmented size="small" value={resolution} onChange={(v) => setResolution(String(v))} options={["480P", "720P", "1080P"]} />
+          <Segmented size="small" value={resolution} onChange={(v) => { setResolution(String(v)); syncToScript({ resolution: String(v) }); }} options={["480P", "720P", "1080P"]} />
         </div>
 
         <div style={rowWrap}>
@@ -46,7 +130,7 @@ export default function ConsoleModule() {
           <Segmented
             size="small"
             value={ratio}
-            onChange={(v) => setRatio(String(v))}
+            onChange={(v) => { setRatio(String(v)); syncToScript({ ratio: String(v) }); }}
             options={[
               { label: "竖屏 9:16", value: "9:16" },
               { label: "横屏 16:9", value: "16:9" },
@@ -58,22 +142,35 @@ export default function ConsoleModule() {
         <div style={rowWrap}>
           <span style={labelStyle}>时长</span>
           <Space.Compact size="small">
-            <InputNumber
-              min={1}
-              max={120}
-              value={duration}
-              onChange={(v) => setDuration(Number(v) || 1)}
-              style={{ width: 96 }}
-            />
+            <InputNumber min={1} max={30} value={duration} onChange={(v) => { setDuration(Number(v) || 1); syncToScript({ duration: Number(v) || 1 }); }} style={{ width: 96 }} />
             <div style={{ padding: "0 10px", background: "#f5f5f5", borderLeft: "1px solid #eee", display: "flex", alignItems: "center", fontSize: 12, color: "#666" }}>秒</div>
           </Space.Compact>
         </div>
       </div>
 
-      {/* 底部工具栏: 开始生成 */}
-      <div style={{ borderTop: "1px solid #eee", padding: 10, display: "flex", justifyContent: "flex-end" }}>
-        <Button type="primary" icon={<PlayCircleOutlined />} onClick={start} style={{ height: 40, display: "inline-flex", alignItems: "center" }}>
-          开始生成
+      {/* 底部工具栏: 模型切换(左) + 开始生成(右) */}
+      <div style={{ borderTop: "1px solid #eee", padding: 10, display: "flex", alignItems: "center", gap: 8 }}>
+        <Select
+          size="large"
+          value={modelKey || undefined}
+          onChange={(v) => setModelKey(String(v))}
+          placeholder="选择视频模型"
+          style={{ width: 240 }}
+          popupMatchSelectWidth={330}
+          options={(models || []).map((m) => ({
+            value: m.key,
+            disabled: m.status === "retiring",
+            label: (
+              <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</span>
+                <span style={{ flexShrink: 0, color: "#888", fontSize: 12 }}>¥{m.pricePerSecond}/秒</span>
+              </span>
+            ),
+          }))}
+        />
+        <div style={{ flex: 1 }} />
+        <Button type="primary" icon={<PlayCircleOutlined />} onClick={() => void start()} loading={generating} style={{ height: 40, display: "inline-flex", alignItems: "center", minWidth: 120 }}>
+          {generating ? "提交中…" : "开始生成"}
         </Button>
       </div>
     </div>

@@ -24,7 +24,7 @@ interface Script {
 }
 
 const PAGE_SIZE = 10; // 每页条数(滚动到底自动加载下一页)
-const ACCEPT_FILES = ".txt,.docx"; // 支持的文件类型
+const ACCEPT_FILES = ".txt,.md,.docx"; // 支持的文件类型
 
 function fmtDateTime(iso: string): string {
   try {
@@ -52,6 +52,7 @@ export default function ScriptModule() {
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; id: number } | null>(null); // 行右键菜单
+  const [editPrompt, setEditPrompt] = useState<{ open: boolean; id: number; value: string }>({ open: false, id: 0, value: "" }); // 提示词弹窗编辑
   const [dragging, setDragging] = useState(false);      // 拖拽高亮
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [textForm] = Form.useForm();
@@ -109,52 +110,59 @@ export default function ScriptModule() {
     }
   };
 
-  // ---------- 添加: 上传文件(单次) ----------
+  // ---------- 添加: 上传文件(单次, 解析中/完成均有提示) ----------
   const uploadOne = async (f: File): Promise<void> => {
-    const fd = new FormData();
-    fd.append("file", f);
-    const r = await fetch("/api/scripts/upload", { method: "POST", body: fd });
-    const j = (await r.json()) as { detail?: string; ok?: boolean; name?: string };
-    if (!r.ok) throw new Error(j.detail || `上传失败: ${f.name}`);
-    message.success(`已添加: ${j.name ?? f.name}`);
-  };
-
-  // 弹窗内选择文件(多个)
-  const handlePickerFiles = async (files: File[]): Promise<void> => {
-    if (!files.length) return;
+    const key = `script-parse-${Date.now()}`;
+    message.loading({ content: `正在添加并解析「${f.name}」…`, key, duration: 0 });
     try {
-      for (const f of files) await uploadOne(f);
-      setFileList([]);
-      setModalOpen(false);
-      setSelected([]);
+      const fd = new FormData();
+      fd.append("file", f);
+      const r = await fetch("/api/scripts/upload", { method: "POST", body: fd });
+      const j = (await r.json()) as { detail?: string; ok?: boolean; name?: string; parse?: { ok?: boolean; summary?: string; detail?: string } | null };
+      if (!r.ok) throw new Error(j.detail || `上传失败: ${f.name}`);
+      if (j.parse?.ok && j.parse.summary) {
+        message.success({ content: `添加成功，解析完成: ${j.parse.summary}`, key, duration: 4 });
+      } else {
+        const why = j.parse && !j.parse.ok ? `（${j.parse.detail || "解析失败"}）` : "";
+        message.success({ content: `已添加: ${j.name ?? f.name}${why}`, key, duration: 4 });
+      }
+      // 刷新剧本库 + 三库(解析出的 人物/场景/产品)
       applyFilter();
+      window.dispatchEvent(new Event("scripts-changed"));
     } catch (e) {
-      message.error((e as Error).message);
-      setFileList([]);
+      message.error({ content: (e as Error).message, key, duration: 4 });
     }
   };
 
-  // 模块内直接拖入文件
+  // 弹窗内选择文件(一次一个; 确认即关闭弹窗, 后台解析)
+  const handlePickerFiles = async (files: File[]): Promise<void> => {
+    const f = files[0];
+    if (!f) return;
+    setFileList([]);
+    setModalOpen(false); // 确认后弹窗立即关闭
+    setSelected([]);
+    await uploadOne(f);
+  };
+
+  // 模块内直接拖入文件(可多个, 逐个上传解析)
   const handleDrop = async (e: React.DragEvent): Promise<void> => {
     e.preventDefault();
     setDragging(false);
     const files = Array.from(e.dataTransfer?.files || []);
     if (!files.length) return;
-    try {
-      for (const f of files) await uploadOne(f);
-      setSelected([]);
-      applyFilter();
-    } catch (err) {
-      message.error((err as Error).message);
-    }
+    setSelected([]);
+    for (const f of files) await uploadOne(f);
   };
 
-  // ---------- 添加: 粘贴提示词 ----------
+  // ---------- 添加: 粘贴提示词(确认即关弹窗, 后台解析) ----------
   const saveText = async (): Promise<void> => {
     let values: { name?: string; content: string };
     try {
       values = await textForm.validateFields();
     } catch { return; }
+    const key = `script-parse-${Date.now()}`;
+    message.loading({ content: "正在添加并解析剧本…", key, duration: 0 });
+    setModalOpen(false); // 确认后弹窗立即关闭
     setSaving(true);
     try {
       const r = await fetch("/api/scripts", {
@@ -162,15 +170,19 @@ export default function ScriptModule() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: values.name || "", content: values.content }),
       });
-      const j = (await r.json()) as { detail?: string; ok?: boolean };
+      const j = (await r.json()) as { detail?: string; ok?: boolean; parse?: { ok?: boolean; summary?: string; detail?: string } | null };
       if (!r.ok) throw new Error(j.detail || "保存失败");
-      message.success("已添加");
-      setModalOpen(false);
-      textForm.resetFields();
+      if (j.parse?.ok && j.parse.summary) {
+        message.success({ content: `添加成功，解析完成: ${j.parse.summary}`, key, duration: 4 });
+      } else {
+        const why = j.parse && !j.parse.ok ? `（${j.parse.detail || "解析失败"}）` : "";
+        message.success({ content: `已添加${why}`, key, duration: 4 });
+      }
       setSelected([]);
       applyFilter();
+      window.dispatchEvent(new Event("scripts-changed"));
     } catch (e) {
-      message.error((e as Error).message);
+      message.error({ content: (e as Error).message, key, duration: 4 });
     } finally {
       setSaving(false);
     }
@@ -221,21 +233,28 @@ export default function ScriptModule() {
   const toggleSelect = (id: number): void => {
     setSelected((prev) => {
       const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      const rec = items.find((i) => i.id === id);
       // 选中时联动: 三库对应记录置顶+选中; 控制台同步解析出的参数
-      if (next.includes(id)) {
-        const rec = items.find((i) => i.id === id);
-        if (rec) {
-          // 异步派发, 脱离 React 渲染事件栈(避免"渲染期间更新其他组件"警告)
-          const detail = {
-            chars: parseIds(rec.character_ids),
-            scenes: parseIds(rec.scene_ids),
-            prods: parseIds(rec.product_ids),
-            resolution: rec.resolution || "",
-            duration: rec.duration || "",
-            ratio: rec.ratio || "",
-          };
-          setTimeout(() => window.dispatchEvent(new CustomEvent("library-link", { detail })), 0);
-        }
+      if (next.includes(id) && rec) {
+        // 异步派发, 脱离 React 渲染事件栈(避免"渲染期间更新其他组件"警告)
+        const detail = {
+          chars: parseIds(rec.character_ids),
+          scenes: parseIds(rec.scene_ids),
+          prods: parseIds(rec.product_ids),
+          resolution: rec.resolution || "",
+          duration: rec.duration || "",
+          ratio: rec.ratio || "",
+          prompt: rec.content || "", // 剧本内容即生成提示词(控制台直接使用)
+          name: rec.name || "",
+          scriptId: rec.id, // 下游反向写回用
+        };
+        setTimeout(() => window.dispatchEvent(new CustomEvent("library-link", { detail })), 0);
+      } else if (!next.includes(id)) {
+        // 取消选中: 通知三库/控制台恢复默认(撤掉联动选中)
+        setTimeout(
+          () => window.dispatchEvent(new CustomEvent("library-link", { detail: { chars: [], scenes: [], prods: [], unlink: true, name: "", scriptId: null } })),
+          0,
+        );
       }
       return next;
     });
@@ -286,11 +305,24 @@ export default function ScriptModule() {
     {
       title: "提示词", dataIndex: "content", key: "content",
       ellipsis: true,
-      render: (v: string) => {
+      render: (v: string, rec) => {
         const text = (v || "").replace(/<[^>]*>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
         return (
-          <Tooltip title={text || "无"} placement="leftTop">
-            <span style={{ fontSize: 12, color: text ? "#888" : "#ccc" }}>{text || "—"}</span>
+          <Tooltip
+            placement="leftTop"
+            styles={{ container: { maxWidth: 420 } }}
+            title={
+              <div style={{ maxHeight: 280, overflowY: "auto", whiteSpace: "pre-wrap", fontSize: 12, lineHeight: 1.6 }}>
+                {text || "无"}
+              </div>
+            }
+          >
+            <span
+              onClick={(e) => { e.stopPropagation(); setEditPrompt({ open: true, id: rec.id, value: v || "" }); }}
+              style={{ fontSize: 12, color: text ? "#888" : "#ccc", cursor: "text" }}
+            >
+              {text || "—"}
+            </span>
           </Tooltip>
         );
       },
@@ -419,6 +451,45 @@ export default function ScriptModule() {
         </>
       )}
 
+      {/* 提示词弹窗编辑(点击提示词列打开) */}
+      <Modal open={editPrompt.open} title="编辑提示词" onCancel={() => setEditPrompt((p) => ({ ...p, open: false }))} footer={null} width={560} destroyOnHidden>
+        <Input.TextArea
+          value={editPrompt.value}
+          onChange={(e) => setEditPrompt((p) => ({ ...p, value: e.target.value }))}
+          autoSize={{ minRows: 6, maxRows: 14 }}
+          placeholder="剧本内容 / 提示词…"
+          style={{ fontSize: 13, lineHeight: 1.7 }}
+        />
+        <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <Button onClick={() => setEditPrompt((p) => ({ ...p, open: false }))}>取消</Button>
+          <Button
+            type="primary"
+            onClick={() => {
+              const pid = editPrompt.id;
+              const pv = editPrompt.value;
+              setEditPrompt((p) => ({ ...p, open: false }));
+              const rec = items.find((i) => i.id === pid);
+              void (async () => {
+                try {
+                  const r = await fetch(`/api/scripts/${pid}`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ name: rec?.name || "", file_path: rec?.file_path || "", content: pv }),
+                  });
+                  const j = (await r.json()) as { detail?: string; ok?: boolean };
+                  if (!r.ok) throw new Error(j.detail || "保存失败");
+                  window.dispatchEvent(new Event("scripts-changed")); // 刷新列表(名称可能随首行变化)
+                } catch (e) {
+                  message.error((e as Error).message);
+                }
+              })();
+            }}
+          >
+            保存
+          </Button>
+        </div>
+      </Modal>
+
       {/* 添加弹窗: 上传文件 / 粘贴提示词 */}
       <Modal
         open={modalOpen}
@@ -435,7 +506,6 @@ export default function ScriptModule() {
               label: "上传文件",
               children: (
                 <Upload.Dragger
-                  multiple
                   accept={ACCEPT_FILES}
                   fileList={fileList}
                   beforeUpload={(_f, files) => { void handlePickerFiles(files); return false; }}
@@ -443,7 +513,7 @@ export default function ScriptModule() {
                   style={{ padding: "6px 0" }}
                 >
                   <p style={{ fontSize: 14, color: "#888", margin: 0 }}>点击或拖入文件</p>
-                  <p style={{ fontSize: 12, color: "#bbb", margin: "6px 0 0" }}>支持 .txt / .docx（word 图片会一并提取）</p>
+                  <p style={{ fontSize: 12, color: "#bbb", margin: "6px 0 0" }}>支持 .txt / .md / .docx（word 图片会一并提取）</p>
                 </Upload.Dragger>
               ),
             },
