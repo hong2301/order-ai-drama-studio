@@ -220,15 +220,17 @@ export default function ScriptModule() {
   // 右键手动解析剧本(识别人物/场景/产品/清晰度/时长/关键词)
   const parseOne = async (id: number): Promise<void> => {
     setMenu(null);
-    message.loading("正在解析…");
+    // duration:0 → loading 不自动消失(解析可能要几十秒), 完成时用同 key 替换
+    const key = `parse-${id}-${Date.now()}`;
+    message.loading({ content: "正在解析(可能需要几秒~几十秒)…", key, duration: 0 });
     try {
       const r = await fetch(`/api/scripts/${id}/parse`, { method: "POST" });
       const j = (await r.json()) as { detail?: string; ok?: boolean; summary?: string };
       if (!r.ok) throw new Error(j.detail || "解析失败");
-      message.success(`解析完成: ${j.summary || ""}`);
+      message.success({ content: `解析完成: ${j.summary || ""}`, key, duration: 3 });
       applyFilter();
     } catch (e) {
-      message.error((e as Error).message);
+      message.error({ content: `解析失败: ${(e as Error).message}`, key, duration: 4 });
     }
   };
 

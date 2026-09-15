@@ -3,6 +3,18 @@
 import { chat, type ToolDef } from "@/lib/server/doubao";
 import { getDb, persist, queryOne } from "@/lib/server/db";
 import type { Database } from "sql.js";
+import fs from "fs";
+import path from "path";
+import { dataDir } from "@/lib/server/db";
+
+/** 服务端日志: data/logs/server.log(与 Electron main.log 并列) */
+export function log(msg: string): void {
+  try {
+    const dir = path.join(dataDir(), "logs");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.appendFileSync(path.join(dir, "server.log"), `[${new Date().toISOString()}] ${msg}\n`);
+  } catch { /* ignore */ }
+}
 
 const TEXT_MAX = 8000;
 
@@ -84,12 +96,12 @@ function upsertRecord(
 export async function parseScript(scriptId: number): Promise<{ ok: boolean; detail?: string; summary?: string }> {
   const db = await getDb();
   const row = queryOne(db, "SELECT * FROM scripts WHERE id=?", [scriptId]);
-  if (!row) return { ok: false, detail: "剧本不存在" };
+  if (!row) { log(`解析失败 剧本${scriptId}: 不存在`); return { ok: false, detail: "剧本不存在" }; }
   const text = plainText(String(row.content || ""));
-  if (!text) return { ok: false, detail: "剧本内容为空，无法解析" };
+  if (!text) { log(`解析失败 剧本${scriptId}: 内容为空`); return { ok: false, detail: "剧本内容为空，无法解析" }; }
 
   const apiKey = process.env.DOUBAO_API_KEY || "";
-  if (!apiKey) return { ok: false, detail: "未配置 DOUBAO_API_KEY" };
+  if (!apiKey){ log(`解析失败 剧本${scriptId}: 未配置 DOUBAO_API_KEY`); return { ok: false, detail: "未配置 DOUBAO_API_KEY" }; }
   const modelId = process.env.DOUBAO_CHAT_MODEL || "doubao-seed-2-0-mini-260428";
 
   const prompt = [
@@ -112,11 +124,12 @@ export async function parseScript(scriptId: number): Promise<{ ok: boolean; deta
         return JSON.stringify({ ok: false, detail: `未知工具 ${name}` });
       },
     });
-  } catch {
+  } catch (e) {
+    log(`解析失败 剧本${scriptId}: ${(e as Error).message}`);
     return { ok: false, detail: "AI 解析调用失败" };
   }
   const v = result.value;
-  if (!v) return { ok: false, detail: "AI 未能解析剧本" };
+  if (!v) { log(`解析失败 剧本${scriptId}: AI 未返回解析结果`); return { ok: false, detail: "AI 未能解析剧本" }; }
 
   // 三库查重/写入
   const now = new Date().toISOString();
@@ -146,6 +159,7 @@ export async function parseScript(scriptId: number): Promise<{ ok: boolean; deta
     ],
   );
   await persist();
+  log(`解析完成 剧本${scriptId}(${String(row.name)}): ${charIds.length}人物/${sceneIds.length}场景/${prodIds.length}产品 ${String(v.resolution || "")} ${String(v.duration || "")}秒`);
 
   return {
     ok: true,
