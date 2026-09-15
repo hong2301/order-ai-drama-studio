@@ -4,6 +4,7 @@ import { Button } from "antd";
 import { ReloadOutlined, VideoCameraOutlined } from "@ant-design/icons";
 import ChatModule from "./components/ChatModule";
 import ScriptModule from "./components/ScriptModule";
+import ConsoleModule from "./components/ConsoleModule";
 import InfoCardModule from "./components/InfoCardModule";
 
 export default function Home() {
@@ -31,7 +32,15 @@ export default function Home() {
       {/* body: 模块从左到右排列, 自动填充剩余高度(无 tail) */}
       <div style={{ flex: 1, minHeight: 0, padding: 16, display: "flex", gap: 16, alignItems: "stretch" }}>
         <ChatModule />
-        <ScriptModule />
+        {/* 剧本(上, 6) + 控制台(下, 4) 同列 */}
+        <div style={{ width: 460, display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ flex: 6, minHeight: 0, display: "flex", flexDirection: "column" }}>
+            <ScriptModule />
+          </div>
+          <div style={{ flex: 4, minHeight: 0, display: "flex", flexDirection: "column" }}>
+            <ConsoleModule />
+          </div>
+        </div>
         {/* 人物/场景/产品: 三个资料库上中下排成一列(共用图片表), flex 撑满列高 */}
         <div style={{ width: 460, display: "flex", flexDirection: "column", gap: 12 }}>
           <InfoCardModule title="人物库" api="/api/characters" identityLabel="身份" identityPlaceholder="输入身份后回车, 如 主角/婆婆/邻居" />

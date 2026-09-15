@@ -1,0 +1,65 @@
+"use client";
+
+import { useState } from "react";
+import { App as AntApp, Button, Segmented } from "antd";
+import { PlayCircleOutlined } from "@ant-design/icons";
+
+/** 控制台模块: 视频生成基础参数(分辨率/比例/时长) + 底部工具栏(开始生成) */
+export default function ConsoleModule() {
+  const { message } = AntApp.useApp();
+  const [resolution, setResolution] = useState<string>("1080P");
+  const [ratio, setRatio] = useState<string>("9:16");
+  const [duration, setDuration] = useState<number>(15);
+
+  const start = (): void => {
+    // TODO: 接入视频生成流程后在此触发
+    message.info(`开始生成: ${ratio} ${resolution} · ${duration}秒`);
+  };
+
+  // 参数行公共样式
+  const rowWrap: React.CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 };
+  const labelStyle: React.CSSProperties = { fontSize: 12, color: "#666", flexShrink: 0, width: 44 };
+
+  return (
+    <div style={{ flex: 1, minHeight: 0, width: "100%", display: "flex", flexDirection: "column", borderRadius: 12, border: "1px solid #e5e5e5", background: "#fff", overflow: "hidden" }}>
+      {/* 标题行 */}
+      <div style={{ padding: "8px 12px", borderBottom: "1px solid #eee", fontSize: 13, fontWeight: 600, color: "#111" }}>
+        控制台
+      </div>
+
+      {/* 参数区 */}
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "10px 12px", display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={rowWrap}>
+          <span style={labelStyle}>分辨率</span>
+          <Segmented size="small" value={resolution} onChange={(v) => setResolution(String(v))} options={["480P", "720P", "1080P", "2K"]} />
+        </div>
+
+        <div style={rowWrap}>
+          <span style={labelStyle}>画面比例</span>
+          <Segmented
+            size="small"
+            value={ratio}
+            onChange={(v) => setRatio(String(v))}
+            options={[
+              { label: "竖屏 9:16", value: "9:16" },
+              { label: "横屏 16:9", value: "16:9" },
+              { label: "方形 1:1", value: "1:1" },
+            ]}
+          />
+        </div>
+
+        <div style={rowWrap}>
+          <span style={labelStyle}>时长</span>
+          <Segmented size="small" value={duration} onChange={(v) => setDuration(Number(v))} options={[5, 10, 15, 30].map((s) => ({ label: `${s}秒`, value: s }))} />
+        </div>
+      </div>
+
+      {/* 底部工具栏: 开始生成 */}
+      <div style={{ borderTop: "1px solid #eee", padding: 10, display: "flex", justifyContent: "flex-end" }}>
+        <Button type="primary" icon={<PlayCircleOutlined />} onClick={start}>
+          开始生成
+        </Button>
+      </div>
+    </div>
+  );
+}
