@@ -118,6 +118,10 @@ function createWindow(): void {
 }
 
 app.whenReady().then(async () => {
+  // mac: 开发模式任务栏(Dock)图标使用项目 logo(打包后由 icon.icns 决定)
+  if (process.platform === "darwin" && app.dock) {
+    try { app.dock.setIcon(path.join(__dirname, "..", "icon.png")); } catch { /* ignore */ }
+  }
   if (!isDev) {
     // 生产: 读 .env(build 复制; win=exe同级, mac=Resources) + 启动 next server + 等就绪
     const envDir = process.platform === "darwin" ? process.resourcesPath : path.dirname(app.getPath("exe"));

@@ -25,7 +25,8 @@
     },
     "mac": {
       "target": "dir",
-      "identity": null
+      "identity": null,
+      "icon": "icon.icns"
     },
     "asar": true
   },
