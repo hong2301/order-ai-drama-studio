@@ -210,7 +210,7 @@ export default function InfoCardModule(props: {
 
   return (
     <div
-      style={{ width: "100%", display: "flex", flexDirection: "column", borderRadius: 12, border: "1px solid #e5e5e5", background: "#fff", overflow: "hidden" }}
+      style={{ maxHeight: "32vh", width: "100%", display: "flex", flexDirection: "column", borderRadius: 12, border: "1px solid #e5e5e5", background: "#fff", overflow: "hidden" }}
     >
       {/* 模块标题行 + 搜索 */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderBottom: "1px solid #eee" }}>
@@ -238,7 +238,7 @@ export default function InfoCardModule(props: {
             dataSource={items}
             columns={columns}
             pagination={false}
-            locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={`暂无${title}`} style={{ padding: 20 }} /> }}
+            locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={<span style={{ fontSize: 12, color: "#bbb" }}>暂无{title}</span>} style={{ margin: "6px 0", padding: 0 }} /> }}
             onRow={(rec) => ({
               onContextMenu: (e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, id: rec.id }); },
               onClick: () => toggleSelect(rec.id),
