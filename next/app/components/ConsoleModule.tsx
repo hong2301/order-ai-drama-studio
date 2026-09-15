@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { App as AntApp, Button, Segmented } from "antd";
+import { App as AntApp, Button, InputNumber, Segmented } from "antd";
 import { PlayCircleOutlined } from "@ant-design/icons";
 
 /** 控制台模块: 视频生成基础参数(分辨率/比例/时长) + 底部工具栏(开始生成) */
@@ -17,15 +17,13 @@ export default function ConsoleModule() {
   };
 
   // 参数行公共样式
-  const rowWrap: React.CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 };
-  const labelStyle: React.CSSProperties = { fontSize: 12, color: "#666", flexShrink: 0, width: 44 };
+  const rowWrap: React.CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 };
+  const labelStyle: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: "#222", flexShrink: 0, whiteSpace: "nowrap", width: 64 };
 
   return (
-    <div style={{ flex: 1, minHeight: 0, width: "100%", display: "flex", flexDirection: "column", borderRadius: 12, border: "2px solid #111", background: "#fff", overflow: "hidden" }}>
+    <div style={{ flex: 1, minHeight: 0, width: "100%", display: "flex", flexDirection: "column", borderRadius: 12, border: "3px solid #111", background: "#fff", overflow: "hidden" }}>
       {/* 参数区(无标题) */}
-
-      {/* 参数区 */}
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "10px 12px", display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 14 }}>
         <div style={rowWrap}>
           <span style={labelStyle}>分辨率</span>
           <Segmented size="small" value={resolution} onChange={(v) => setResolution(String(v))} options={["480P", "720P", "1080P", "2K"]} />
@@ -47,7 +45,15 @@ export default function ConsoleModule() {
 
         <div style={rowWrap}>
           <span style={labelStyle}>时长</span>
-          <Segmented size="small" value={duration} onChange={(v) => setDuration(Number(v))} options={[5, 10, 15, 30].map((s) => ({ label: `${s}秒`, value: s }))} />
+          <InputNumber
+            size="small"
+            min={1}
+            max={120}
+            value={duration}
+            onChange={(v) => setDuration(Number(v) || 1)}
+            addonAfter="秒"
+            style={{ width: 120 }}
+          />
         </div>
       </div>
 
