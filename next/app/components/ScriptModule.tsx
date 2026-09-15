@@ -184,12 +184,8 @@ export default function ScriptModule() {
         </ConfigProvider>
       </div>
 
-      {/* 底部: 左侧统计 + 右侧新增按钮 */}
-      <div style={{ borderTop: "1px solid #eee", padding: "10px 12px", display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 12, color: data.length > 0 ? "#999" : "#ccc" }}>
-          {data.length > 0 ? `共 ${data.length} 条` : "还没有剧本"}
-        </span>
-        <div style={{ flex: 1 }} />
+      {/* 底部工具栏: 新增按钮(靠右) */}
+      <div style={{ borderTop: "1px solid #eee", padding: 10, display: "flex", justifyContent: "flex-end" }}>
         <Button
           type="primary"
           icon={<PlusOutlined />}
