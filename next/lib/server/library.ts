@@ -116,6 +116,79 @@ function parseNumArr(raw: unknown): number[] {
   } catch { return []; }
 }
 
+/** 三库列表项(含解析后的标签/图片明细) */
+export interface LibraryListItem {
+  id: number;
+  name: string;
+  identity: string[];
+  prompt: string;
+  image_ids: number[];
+  images: { id: number; path: string; name: string; description: string }[];
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * 三库列表查询(三个 /api 共用):
+ * - keyword: 名称模糊 + 分页(列表展示)
+ * - ids / nameKeys: 精确批量定位(剧本联动用 —— 库内同名记录已合并, 按名称归一化键匹配最可靠)
+ */
+export async function listLibraryRecords(
+  table: LibraryTable,
+  opts: { keyword?: string; page?: number; pageSize?: number; ids?: number[]; nameKeys?: string[] } = {},
+): Promise<{ items: LibraryListItem[]; total: number }> {
+  const db: Database = await getDb();
+  const page = Math.max(1, opts.page || 1);
+  const pageSize = Math.min(200, Math.max(1, opts.pageSize || 10));
+  const where: string[] = [];
+  const params: unknown[] = [];
+  if (opts.keyword) { where.push("name LIKE ?"); params.push(`%${opts.keyword}%`); }
+  if (opts.ids?.length) { where.push(`id IN (${opts.ids.map(() => "?").join(",")})`); params.push(...opts.ids); }
+  if (opts.nameKeys?.length) { where.push(`name_key IN (${opts.nameKeys.map(() => "?").join(",")})`); params.push(...opts.nameKeys); }
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
+  const total = Number(queryOne(db, `SELECT COUNT(*) AS n FROM ${table} ${whereSql}`, params)?.n ?? 0);
+  const rows = queryAll(
+    db,
+    `SELECT * FROM ${table} ${whereSql} ORDER BY id DESC LIMIT ? OFFSET ?`,
+    [...params, pageSize, (page - 1) * pageSize],
+  );
+
+  // 解析 JSON 字段 + 关联图片明细
+  const imageIds = new Set<number>();
+  const items = rows.map((r) => {
+    let identity: string[] = [];
+    try { identity = JSON.parse(String(r.identity || "[]")) as string[]; } catch { /* ignore */ }
+    const ids = parseNumArr(r.image_ids);
+    ids.forEach((n) => imageIds.add(n));
+    return {
+      id: Number(r.id),
+      name: String(r.name || ""),
+      identity,
+      prompt: String(r.prompt || ""),
+      image_ids: ids,
+      images: [] as LibraryListItem["images"],
+      created_at: String(r.created_at || ""),
+      updated_at: String(r.updated_at || ""),
+    };
+  });
+  if (imageIds.size) {
+    const imgs = queryAll(
+      db,
+      `SELECT id, path, name, description FROM images WHERE id IN (${[...imageIds].map(() => "?").join(",")})`,
+      [...imageIds],
+    );
+    const imgMap = new Map(imgs.map((i) => [Number(i.id), i]));
+    for (const it of items) {
+      it.images = it.image_ids
+        .map((n) => imgMap.get(n))
+        .filter((x): x is Record<string, unknown> => !!x)
+        .map((x) => ({ id: Number(x.id), path: String(x.path || ""), name: String(x.name || ""), description: String(x.description || "") }));
+    }
+  }
+  return { items, total };
+}
+
 /**
  * 历史重复清理: 同表内名称归一化一致的记录合并为一条
  * (身份/图片并集去重, 提示词逐条融合, 剧本引用指向保留的记录, 多余记录删除)

@@ -18,6 +18,10 @@ interface Script {
   character_ids?: string;
   scene_ids?: string;
   product_ids?: string;
+  /** 后端附带的物料名称(三库同名已合并, 联动按名称选中) */
+  char_names?: string[];
+  scene_names?: string[];
+  prod_names?: string[];
   resolution?: string;
   duration?: string;
   ratio?: string;
@@ -196,7 +200,11 @@ export default function ScriptModule() {
       const r = await fetch(`/api/scripts/${id}`, { method: "DELETE" });
       if (!r.ok) throw new Error("删除失败");
       message.success("已删除");
-      setSelected((s) => s.filter((x) => x !== id));
+      setSelected((s) => {
+        const next = s.filter((x) => x !== id);
+        if (next.length !== s.length) dispatchUnlink(); // 删的是联动选中的剧本 → 通知恢复
+        return next;
+      });
       applyFilter();
     } catch (e) {
       message.error((e as Error).message);
@@ -212,9 +220,10 @@ export default function ScriptModule() {
         body: JSON.stringify({ ids: selected }),
       });
       const j = (await r.json()) as { detail?: string; deleted?: number };
-      if (!r.ok) throw new Error(j.detail || "批量删除失败");
+      if (!r.ok) throw new Error(j.detail || "删除失败");
       message.success(`已删除 ${j.deleted ?? selected.length} 条`);
       setSelected([]);
+      dispatchUnlink(); // 删掉的正是联动选中的剧本 → 通知三库/控制台恢复
       applyFilter();
     } catch (e) {
       message.error((e as Error).message);
@@ -232,34 +241,45 @@ export default function ScriptModule() {
     try { const a = JSON.parse(raw || "[]") as unknown[]; return a.filter((n): n is number => typeof n === "number"); } catch { return []; }
   };
 
+  /** 派发取消联动(三库/控制台恢复) */
+  const dispatchUnlink = (): void => {    setTimeout(
+      () => window.dispatchEvent(new CustomEvent("library-link", { detail: { chars: [], scenes: [], prods: [], charNames: [], sceneNames: [], prodNames: [], unlink: true, name: "", scriptId: null } })),
+      0,
+    );
+  };
+
+  /** 单选: 选中指定剧本(派发联动); 传 null 取消选中 */
+  const selectOne = (id: number | null): void => {
+    if (id === null) {
+      setSelected([]);
+      dispatchUnlink();
+      return;
+    }
+    const rec = items.find((i) => i.id === id);
+    setSelected([id]); // 单选: 覆盖之前的选中
+    if (!rec) return;
+    // 异步派发, 脱离 React 渲染事件栈(避免"渲染期间更新其他组件"警告)
+    const detail = {
+      chars: parseIds(rec.character_ids),
+      scenes: parseIds(rec.scene_ids),
+      prods: parseIds(rec.product_ids),
+      // 名称联动: 三库同名记录会合并, 按名称选中更可靠
+      charNames: rec.char_names || [],
+      sceneNames: rec.scene_names || [],
+      prodNames: rec.prod_names || [],
+      resolution: rec.resolution || "",
+      duration: rec.duration || "",
+      ratio: rec.ratio || "",
+      prompt: rec.content || "", // 剧本内容即生成提示词(控制台直接使用)
+      name: rec.name || "",
+      scriptId: rec.id, // 下游反向写回用
+    };
+    setTimeout(() => window.dispatchEvent(new CustomEvent("library-link", { detail })), 0);
+  };
+
+  // 行点击: 单选(一次只能选中一个剧本); 再点已选中的行则取消
   const toggleSelect = (id: number): void => {
-    setSelected((prev) => {
-      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
-      const rec = items.find((i) => i.id === id);
-      // 选中时联动: 三库对应记录置顶+选中; 控制台同步解析出的参数
-      if (next.includes(id) && rec) {
-        // 异步派发, 脱离 React 渲染事件栈(避免"渲染期间更新其他组件"警告)
-        const detail = {
-          chars: parseIds(rec.character_ids),
-          scenes: parseIds(rec.scene_ids),
-          prods: parseIds(rec.product_ids),
-          resolution: rec.resolution || "",
-          duration: rec.duration || "",
-          ratio: rec.ratio || "",
-          prompt: rec.content || "", // 剧本内容即生成提示词(控制台直接使用)
-          name: rec.name || "",
-          scriptId: rec.id, // 下游反向写回用
-        };
-        setTimeout(() => window.dispatchEvent(new CustomEvent("library-link", { detail })), 0);
-      } else if (!next.includes(id)) {
-        // 取消选中: 通知三库/控制台恢复默认(撤掉联动选中)
-        setTimeout(
-          () => window.dispatchEvent(new CustomEvent("library-link", { detail: { chars: [], scenes: [], prods: [], unlink: true, name: "", scriptId: null } })),
-          0,
-        );
-      }
-      return next;
-    });
+    selectOne(selected.includes(id) ? null : id);
   };
 
   // 右键手动解析剧本(识别人物/场景/产品/清晰度/时长/关键词)
@@ -391,7 +411,11 @@ export default function ScriptModule() {
             rowClassName={(rec) => (selected.includes(rec.id) ? "script-row-active" : "")}
             rowSelection={{
               selectedRowKeys: selected,
-              onChange: (keys) => setSelected(keys as number[]),
+              onChange: (keys) => {
+                // 单选: 只保留最后勾选的一项(选中新的自动取消旧的; 取消则传 null)
+                const next = (keys as number[]).slice(-1);
+                selectOne(next.length ? next[0] : null);
+              },
             }}
           />
         </ConfigProvider>
@@ -402,7 +426,7 @@ export default function ScriptModule() {
       {/* 底部工具栏: 批量删除(常驻, 未选中置灰) + 新增(靠右) */}
       <div style={{ borderTop: "1px solid #eee", padding: 10, display: "flex", alignItems: "center", gap: 8 }}>
         <Popconfirm
-          title={`确认删除选中的 ${selected.length} 条剧本？`}
+          title={`确认删除选中的剧本“${items.find((i) => i.id === selected[0])?.name || ""}”？`}
           okText="删除" cancelText="取消" okButtonProps={{ danger: true }}
           onConfirm={() => void delBatch()}
           disabled={!selected.length}
@@ -413,7 +437,7 @@ export default function ScriptModule() {
             disabled={!selected.length}
             style={{ height: 40 }}
           >
-            批量删除{selected.length > 0 ? ` (${selected.length})` : ""}
+            删除{selected.length > 0 ? " (1)" : ""}
           </Button>
         </Popconfirm>
         {/* 视频库(在删除按钮右边, size 一致) */}

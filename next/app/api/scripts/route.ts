@@ -30,7 +30,36 @@ export async function GET(req: NextRequest): Promise<Response> {
     `SELECT * FROM scripts ${whereSql} ORDER BY id DESC LIMIT ? OFFSET ?`,
     [...params, pageSize, offset],
   );
-  return Response.json({ items: rows, total });
+
+  // 附带物料名称: 三库同名记录会被去重合并, 前端联动按「名称」选中比按 id 更可靠
+  const idsOf = (raw: unknown): number[] => {
+    try { return (JSON.parse(String(raw || "[]")) as unknown[]).filter((n): n is number => typeof n === "number"); } catch { return []; }
+  };
+  const idSets: Record<string, Set<number>> = { characters: new Set(), scenes: new Set(), products: new Set() };
+  for (const r of rows) {
+    idsOf(r.character_ids).forEach((n) => idSets.characters.add(n));
+    idsOf(r.scene_ids).forEach((n) => idSets.scenes.add(n));
+    idsOf(r.product_ids).forEach((n) => idSets.products.add(n));
+  }
+  const nameMap: Record<string, Map<number, string>> = {};
+  for (const table of ["characters", "scenes", "products"] as const) {
+    const m = new Map<number, string>();
+    const ids = [...idSets[table]];
+    if (ids.length) {
+      const rs = queryAll(db, `SELECT id, name FROM ${table} WHERE id IN (${ids.map(() => "?").join(",")})`, ids);
+      for (const x of rs) m.set(Number(x.id), String(x.name || ""));
+    }
+    nameMap[table] = m;
+  }
+  const pickNames = (table: "characters" | "scenes" | "products", raw: unknown): string[] =>
+    idsOf(raw).map((n) => nameMap[table].get(n)).filter((x): x is string => !!x);
+  const items = rows.map((r) => ({
+    ...r,
+    char_names: pickNames("characters", r.character_ids),
+    scene_names: pickNames("scenes", r.scene_ids),
+    prod_names: pickNames("products", r.product_ids),
+  }));
+  return Response.json({ items, total });
 }
 
 export async function POST(req: NextRequest): Promise<Response> {

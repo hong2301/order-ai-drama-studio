@@ -149,11 +149,12 @@ export default function InfoCardModule(props: {
     if (files.length) void callImport(files, "");
   };
 
-  // 剧本联动: 选中剧本时, 本库对应 id 的记录置顶并选中
+  // 剧本联动: 选中剧本时, 本库对应记录置顶并选中(按「名称」定位 —— 库内同名记录已合并, 名称比 id 可靠)
   useEffect(() => {
     const onLink = (e: Event): void => {
       const d = (e as CustomEvent).detail as {
         chars: number[]; scenes: number[]; prods: number[];
+        charNames?: string[]; sceneNames?: string[]; prodNames?: string[];
         unlink?: boolean;
         scriptId?: number | null;
       };
@@ -170,17 +171,31 @@ export default function InfoCardModule(props: {
         return;
       }
       const type = api.split("/").filter(Boolean).pop(); // characters/scenes/products
-      const ids = type === "characters" ? d.chars : type === "scenes" ? d.scenes : d.prods;
-      if (!ids || !ids.length) return;
+      const ids = (type === "characters" ? d.chars : type === "scenes" ? d.scenes : d.prods) || [];
+      const names = (type === "characters" ? d.charNames : type === "scenes" ? d.sceneNames : d.prodNames) || [];
+      if (!ids.length && !names.length) return;
       linkRef.current = ids;
-      // 当前已加载项里能匹配的先选中
-      setSelected((prev) => [...new Set([...prev, ...ids.filter((n) => items.some((x) => x.id === n))])]);
-      void load(1, false, filterRef.current.kw);
+      // 按名称批量定位(名称归一化匹配, 同名记录全部命中) → 置顶 + 选中
+      const q = new URLSearchParams();
+      if (names.length) q.set("names", names.join(","));
+      else q.set("ids", ids.join(","));
+      fetch(`${api}?${q.toString()}`)
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error("联动查询失败"))))
+        .then((j: { items?: CardItem[] }) => {
+          const recs = j.items || [];
+          if (!recs.length) return;
+          const recIds = recs.map((x) => x.id);
+          linkRef.current = recIds; // 取消选中时按实际命中的记录撤销
+          setItems((prev) => [...recs, ...prev.filter((p) => !recIds.includes(p.id))]); // 置顶
+          // 兜底策略: 选中剧本时三库选中=该剧本关联的物料, 不属于的(含手动勾选的)一律取消
+          setSelected([...recIds]);
+        })
+        .catch(() => { /* 联动失败静默 */ });
     };
     window.addEventListener("library-link", onLink);
     return () => window.removeEventListener("library-link", onLink);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, load, items]);
+  }, [api, load]);
 
   // 新增保存(手动填写)
   // 手动添加身份标签(追加到 Form 的 identity 数组)
