@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Button } from "antd";
 import { ReloadOutlined } from "@ant-design/icons";
 import ChatModule from "./components/ChatModule";
@@ -9,6 +10,16 @@ import InfoCardModule from "./components/InfoCardModule";
 import KeySettings from "./components/KeySettings";
 
 export default function Home() {
+  const [version, setVersion] = useState("");
+
+  // 版本号(logo 栏标题右侧显示)
+  useEffect(() => {
+    fetch("/api/version")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("读取失败"))))
+      .then((j: { version?: string }) => setVersion(j.version || ""))
+      .catch(() => { /* 静默 */ });
+  }, []);
+
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "#f7f7f7" }}>
       {/* head: logo 栏 */}
@@ -21,6 +32,7 @@ export default function Home() {
       >
         <img src="/icon.svg" alt="logo" style={{ width: 30, height: 30, borderRadius: 6 }} />
         <span style={{ fontWeight: 700, fontSize: 16, letterSpacing: 0.5 }}>AI视频工坊</span>
+        {version && <span style={{ fontSize: 11, color: "#999", marginTop: 3 }}>v{version}</span>}
         <div style={{ flex: 1 }} />
         {/* 刷新按钮, API Key 设置在其右边 */}
         <Button

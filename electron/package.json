@@ -1,6 +1,6 @@
 {
   "name": "ai-video-studio-electron",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "main": "dist/main.js",
   "scripts": {
@@ -37,5 +37,7 @@
     "electron-rebuild": "^3.2.9",
     "typescript": "^7.0.2",
     "wait-on": "^9.1.0"
-  }
+  },
+  "description": "AI视频工坊 — AI 短视频生产工作台(剧本/资料库/生成/成片)",
+  "author": "hong2301"
 }
