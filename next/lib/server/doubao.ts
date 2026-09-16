@@ -101,6 +101,7 @@ export async function chat(
 
       // 有工具请求 → 执行并把结果回填, 继续下一轮
       if (tools && toolCalls.length) {
+        console.log(`[tool-call] ${toolCalls.map((tc) => tc.function?.name).join(",")}`);
         const assistantMsg: Payload = {
           role: "assistant",
           content: msg?.content ?? "",

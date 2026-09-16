@@ -7,13 +7,14 @@ import mammoth from "mammoth";
 import { chat, DoubaoError, type ChatMsg, type ToolDef } from "@/lib/server/doubao";
 import { dataDir, getDb, persist } from "@/lib/server/db";
 import { SYSTEM_PROMPT } from "@/lib/server/chatSystem";
+import { DATA_TOOLS, execDataTool, DATA_TOOL_WRITES, registerChatImages } from "@/lib/server/chatDataTools";
 import { createVideoTask, ensureVideoTables } from "@/lib/server/video";
 import { upsertLibraryRecord, type LibraryTable } from "@/lib/server/library";
 
 type Body = { message?: string; images?: string[]; videos?: string[]; messages?: ChatMsg[]; model?: string };
 
 const MIME: Record<string, string> = {
-  jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
+  jpg: "image/jpeg", jpeg: "image/jpeg", jfif: "image/jpeg", png: "image/png",
   gif: "image/gif", webp: "image/webp",
 };
 const VIDEO_MIME: Record<string, string> = {
@@ -138,33 +139,38 @@ const LIB_META: Record<string, { table: string; typeName: string; label: string 
 
 function buildLibTool(name: string): ToolDef {
   const m = LIB_META[name];
+  // 只有人物库有身份标签字段; 场景/产品库只有 名称/提示词/图片(界面也不展示标签)
+  const withIdentity = name === "add_character";
+  const properties: Record<string, unknown> = {
+    name: { type: "string", description: `${m.typeName}名称` },
+    prompt: { type: "string", description: `${m.typeName}提示词/描述(纯画面描述), 从用户内容中整理` },
+  };
+  if (withIdentity) {
+    properties.identity = { type: "array", items: { type: "string" }, description: `${m.label}标签数组(如人物为 主角/婆婆)` };
+  }
+  const fields = withIdentity ? `名称/${m.label}标签/提示词/图片` : `名称/提示词/图片`;
   return {
     name,
-    description: `把用户提供的内容保存为一条${m.typeName}记录到资料库。**仅在用户明确要求「加入${m.typeName}库/保存到${m.typeName}库/记录${m.typeName}」时调用**；只是谈论/描述时绝不要调用。内容来自附件文件时可先 read_file 读取再整理。`,
-    parameters: {
-      type: "object",
-      properties: {
-        name: { type: "string", description: `${m.typeName}名称` },
-        identity: { type: "array", items: { type: "string" }, description: `${m.label}标签数组(如人物为 主角/婆婆)` },
-        prompt: { type: "string", description: `${m.typeName}提示词/描述, 从用户内容中整理` },
-      },
-      required: ["name", "prompt"],
-    },
+    description: `把用户提供的内容保存为一条${m.typeName}记录到资料库(字段: ${fields})。**仅在用户明确要求「加入${m.typeName}库/保存到${m.typeName}库/记录${m.typeName}」时调用**；只是谈论/描述时绝不要调用。内容来自附件文件时可先 read_file 读取再整理。若本轮用户带了图片附件, 系统会自动把图片登记进图库并与该记录关联(无需你传图片参数)。${withIdentity ? "" : `${m.typeName}库没有「${m.label}」字段, 不要在回复里编造或提及${m.label}。`}`,
+    parameters: { type: "object", properties, required: ["name", "prompt"] },
   };
 }
 
 const LIB_TOOLS: ToolDef[] = Object.keys(LIB_META).map((n) => buildLibTool(n));
 
 /** 写入资料库表(去重合并: 同名同提示词/同名 → 合并身份) */
-async function execLibAdd(table: LibraryTable, args: Record<string, unknown>): Promise<string> {
+async function execLibAdd(table: LibraryTable, args: Record<string, unknown>, imageIds: number[] = []): Promise<string> {
   const name = String(args.name ?? "").trim();
   const prompt = String(args.prompt ?? "").trim();
   if (!name) return JSON.stringify({ ok: false, detail: "名称不能为空" });
   if (!prompt) return JSON.stringify({ ok: false, detail: "提示词不能为空" });
-  const identity = Array.isArray(args.identity) ? (args.identity as unknown[]).map(String) : [];
+  // 仅人物库有身份标签字段; 场景/产品库忽略(界面不展示该字段)
+  const identity = table === "characters" && Array.isArray(args.identity)
+    ? (args.identity as unknown[]).map(String)
+    : [];
   try {
-    const r = await upsertLibraryRecord(table, { name, identity, prompt });
-    return JSON.stringify({ ok: true, id: r.id, merged: r.merged, name });
+    const r = await upsertLibraryRecord(table, { name, identity, prompt, image_ids: imageIds });
+    return JSON.stringify({ ok: true, id: r.id, merged: r.merged, name, images: imageIds.length });
   } catch (e) {
     return JSON.stringify({ ok: false, detail: (e as Error).message });
   }
@@ -219,7 +225,7 @@ const CREATE_VIDEO_TOOL: ToolDef = {
       model_key: { type: "string", description: "视频模型 key, 默认 doubao-seedance-1-0-pro-fast" },
       resolution: { type: "string", description: "分辨率 480P/720P/1080P, 默认 720P" },
       ratio: { type: "string", description: "画面比例 9:16/16:9/1:1, 默认 9:16" },
-      duration: { type: "number", description: "时长秒数 1-12, 默认 10" },
+      duration: { type: "number", description: "时长秒数, 默认 10(部分模型支持 15 秒以上; 超出所选模型上限时会自动下调到上限并告知用户)" },
     },
     required: ["prompt"],
   },
@@ -238,7 +244,13 @@ async function execCreateVideo(args: Record<string, unknown>): Promise<string> {
       ratio: String(args.ratio || "9:16"),
       duration: Number(args.duration) || 10,
     });
-    return JSON.stringify({ ok: true, task_id: task.id, status: task.status, message: "视频任务已提交, 生成完成会自动进视频库" });
+    return JSON.stringify({
+      ok: true,
+      task_id: task.id,
+      status: task.status,
+      duration: task.duration,
+      message: `${task.clampedFrom ? `时长 ${task.clampedFrom} 秒超出该模型上限, 已自动调整为 ${task.duration} 秒(请向用户说明); ` : ""}视频任务已提交, 生成完成会自动进视频库`,
+    });
   } catch (e) {
     return JSON.stringify({ ok: false, detail: (e as Error).message });
   }
@@ -278,12 +290,13 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   // ---------- 附件: 图片 -> data URL; txt/docx -> 文本注入当前消息(附带 data 路径) ----------
   const images: string[] = [];
+  const chatImageUrls: string[] = []; // 本轮图片附件原始地址(供 AI 写库时自动转图库关联)
   const videos: string[] = []; // 视频附件(供模型读视频)
   let attachText = "";
   const attachFiles: { name: string; path: string }[] = []; // txt/docx 附件(供 add_script 兜底 file_path)
   for (const u of (b.images || []).slice(0, 9)) {
     const img = localImageToDataUrl(u);
-    if (img) { images.push(img); continue; }
+    if (img) { images.push(img); chatImageUrls.push(u); continue; }
     const vid = localVideoToDataUrl(u);
     if (vid) { videos.push(vid); continue; }
     const at = await attachTextOf(u);
@@ -316,8 +329,14 @@ export async function POST(req: NextRequest): Promise<Response> {
   try {
     let scriptsChanged = false;
     const reply = await chat(apiKey, modelId, history, {
-      tools: [ADD_SCRIPT_TOOL, READ_FILE_TOOL, TRANSFORM_TOOL, VIDEO_TO_SCRIPT_TOOL, CREATE_VIDEO_TOOL, ...LIB_TOOLS],
+      tools: [TRANSFORM_TOOL, READ_FILE_TOOL, CREATE_VIDEO_TOOL, ADD_SCRIPT_TOOL, VIDEO_TO_SCRIPT_TOOL, ...LIB_TOOLS, ...DATA_TOOLS],
       onToolCall: async (name, args) => {
+        // 数据查询/修改/删除(修改删除已含 confirm 确认校验)
+        const dataTool = execDataTool(name, args);
+        if (dataTool) {
+          if (DATA_TOOL_WRITES.has(name)) scriptsChanged = true; // 改/删之后前端刷新库
+          return await dataTool();
+        }
         // 播放/展示: 新工具
         if (name === "transform_script") {
           const r = await execAddScript(args); // 复用入库+解析
@@ -336,7 +355,9 @@ export async function POST(req: NextRequest): Promise<Response> {
         }
         const lib = LIB_META[name];
         if (lib) {
-          const r = await execLibAdd(lib.table as LibraryTable, args);
+          // 本轮附件图自动转图库并关联
+          const imgIds = await registerChatImages(chatImageUrls);
+          const r = await execLibAdd(lib.table as LibraryTable, args, imgIds);
           const parsed = JSON.parse(r) as { ok?: boolean };
           if (parsed.ok) scriptsChanged = true;
           return r;
