@@ -12,6 +12,9 @@ export const PROVIDERS: Record<string, VideoProvider> = {
  * 模型定义。
  * status 依据: 账号实测(ModelNotOpen=inactive) + 官方生命周期(Retiring/Shutdown)。
  * 已在方舟控制台开通新模型后, 把对应条目的 status 改 active 即可(或提交任务时动态识别)。
+ * 注意: presets.durationMax 仅为**参考值**(展示/AI 提示用)——提交时不再据此拦截;
+ *       真实时长上限以模型接口返回为准(接口会报 "must be less than or equal to N"),
+ *       provider 取该上限重试并回传提示(见 video/providers/doubao.ts parseDurationLimit)。
  */
 export const MODELS: VideoModelDef[] = [
   // ---------- 火山方舟 · 豆包 Seedance(已验证可用) ----------

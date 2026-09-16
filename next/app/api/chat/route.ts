@@ -223,9 +223,9 @@ const CREATE_VIDEO_TOOL: ToolDef = {
     properties: {
       prompt: { type: "string", description: "画面描述提示词(可含人物/场景/产品描述与镜头细节)" },
       model_key: { type: "string", description: "视频模型 key, 默认 doubao-seedance-1-0-pro-fast" },
-      resolution: { type: "string", description: "分辨率 480P/720P/1080P, 默认 720P" },
+      resolution: { type: "string", description: "分辨率 480P/720P/1080P, 默认 480P" },
       ratio: { type: "string", description: "画面比例 9:16/16:9/1:1, 默认 9:16" },
-      duration: { type: "number", description: "时长秒数, 默认 10(部分模型支持 15 秒以上; 超出所选模型上限时会自动下调到上限并告知用户)" },
+      duration: { type: "number", description: "时长秒数, 默认 10(上限以模型接口为准: 超出时会按接口返回的上限自动下调, 并在结果里告知你该向用户说明)" },
     },
     required: ["prompt"],
   },
@@ -240,7 +240,7 @@ async function execCreateVideo(args: Record<string, unknown>): Promise<string> {
     const task = await createVideoTask({
       modelKey: String(args.model_key || "doubao-seedance-1-0-pro-fast"),
       prompt,
-      resolution: String(args.resolution || "720P"),
+      resolution: String(args.resolution || "480P"),
       ratio: String(args.ratio || "9:16"),
       duration: Number(args.duration) || 10,
     });
@@ -249,7 +249,7 @@ async function execCreateVideo(args: Record<string, unknown>): Promise<string> {
       task_id: task.id,
       status: task.status,
       duration: task.duration,
-      message: `${task.clampedFrom ? `时长 ${task.clampedFrom} 秒超出该模型上限, 已自动调整为 ${task.duration} 秒(请向用户说明); ` : ""}视频任务已提交, 生成完成会自动进视频库`,
+      message: `${task.durationAdjustedFrom ? `时长 ${task.durationAdjustedFrom} 秒超出该模型接口上限, 已按接口返回的上限调整为 ${task.duration} 秒(请向用户说明); ` : ""}视频任务已提交, 生成完成会自动进视频库`,
     });
   } catch (e) {
     return JSON.stringify({ ok: false, detail: (e as Error).message });

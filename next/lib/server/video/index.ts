@@ -94,13 +94,8 @@ export async function createVideoTask(input: {
   if (input.duration && (p ? !p.duration : true)) {
     throw new Error(`模型「${def.name}」不支持自定义时长`);
   }
-  // 时长超模型上限 → 不下发报错, 自动下调到上限并标记 clampedFrom(前端/AI 提示用户)
-  let duration = input.duration;
-  let clampedFrom: number | undefined;
-  if (input.duration && p?.durationMax && input.duration > p.durationMax) {
-    clampedFrom = input.duration;
-    duration = p.durationMax;
-  }
+  // 时长上限不写死在代码里: 原样交给模型接口, 超出时 provider 取接口返回的上限重试并回传提示
+  const duration = input.duration;
 
   const t = await provider.submit({
     model: def.model,
@@ -121,8 +116,8 @@ export async function createVideoTask(input: {
     prompt: input.prompt,
     resolution: input.resolution || "",
     ratio: input.ratio || "",
-    duration: duration ? String(duration) : "",
-    clampedFrom,
+    duration: t.durationUsed ? String(t.durationUsed) : duration ? String(duration) : "",
+    durationAdjustedFrom: t.durationAdjustedFrom,
     imageUrl: input.imageUrl || null,
     status: t.status,
     videoUrl: t.videoUrl || null,

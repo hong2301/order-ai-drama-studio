@@ -58,18 +58,39 @@ async function postTask(body: Record<string, unknown>): Promise<{ id: string; st
   return request<{ id: string; status?: string }>("/contents/generations/tasks", { method: "POST", body: JSON.stringify(body) });
 }
 
-/** 提交并容错: 个别模型不支持某参数(InvalidParameter)时, 自动去掉该参数重试(便于扩展新模型) */
-async function submitWithFallback(body: Record<string, unknown>): Promise<{ id: string; status?: string }> {
+/** 从接口错误里解析时长上限(方舟: "duration ... must be less than or equal to 12") — 上限由接口定, 代码不写死 */
+function parseDurationLimit(msg: string): number | null {
+  const m = /duration[^.]*?less than or equal to\s+(\d+)/i.exec(msg);
+  return m ? Number(m[1]) : null;
+}
+
+/**
+ * 提交并容错:
+ * - 时长超上限: 取**接口返回的上限**重试(不本地写死上限), 并记录原值供提示
+ * - 其它参数不支持(InvalidParameter): 逐个去掉重试(便于扩展新模型)
+ * 注意: 不再静默删掉 duration —— 否则用户拿不到想要的时长且无任何提示
+ */
+async function submitWithFallback(body: Record<string, unknown>): Promise<{ id: string; status?: string; durationUsed?: number; durationAdjustedFrom?: number }> {
   try {
     return await postTask(body);
   } catch (e) {
-    if (!/InvalidParameter/.test((e as Error).message)) throw e;
-    for (const k of ["duration", "resolution", "ratio"] as const) {
+    const msg = (e as Error).message;
+    if (!/InvalidParameter/.test(msg)) throw e;
+    // 1) 时长超接口上限 → 按接口给的上限重试
+    const limit = parseDurationLimit(msg);
+    if (limit && typeof body.duration === "number" && body.duration > limit) {
+      const r = await postTask({ ...body, duration: limit });
+      return { ...r, durationUsed: limit, durationAdjustedFrom: body.duration };
+    }
+    // 2) 其它参数不支持 → 去掉该参数重试
+    for (const k of ["resolution", "ratio"] as const) {
       if (body[k] !== undefined) {
         const next = { ...body };
         delete next[k];
         try {
-          return await postTask(next);
+          const r = await postTask(next);
+          const used = typeof next.duration === "number" ? next.duration : undefined;
+          return { ...r, durationUsed: used };
         } catch (e2) {
           if (!/InvalidParameter/.test((e2 as Error).message)) throw e2;
         }
@@ -103,7 +124,12 @@ export const doubaoVideo: VideoProvider = {
     if (req.duration) body.duration = req.duration; // 数字(方舟要求数值型, 字符串会 InvalidParameter)
 
     const r = await submitWithFallback(body);
-    return { id: r.id, status: STATUS_MAP[r.status || "queued"] ?? "queued" };
+    return {
+      id: r.id,
+      status: STATUS_MAP[r.status || "queued"] ?? "queued",
+      durationUsed: r.durationUsed ?? req.duration,
+      durationAdjustedFrom: r.durationAdjustedFrom,
+    };
   },
 
   async get(taskId: string) {

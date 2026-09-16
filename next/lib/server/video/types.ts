@@ -47,7 +47,7 @@ export interface VideoSubmitRequest {
   resolution?: string;
   /** 画面比例(需模型 presets.ratios 支持) */
   ratio?: string;
-  /** 时长秒数(需模型 presets.duration 支持) */
+  /** 时长秒数(上限由模型接口决定: 超出时由接口报错, provider 取接口给的上限重试) */
   duration?: number;
 }
 
@@ -58,6 +58,10 @@ export interface VideoProviderTask {
   status: VideoTaskStatus;
   videoUrl?: string | null;
   error?: string | null;
+  /** 实际采用的时长(接口按上限回调时有值) */
+  durationUsed?: number;
+  /** 原请求时长超出接口上限时, 记录原值供提示 */
+  durationAdjustedFrom?: number;
 }
 
 /** 商家适配器接口 —— 新商家实现这一个接口即可接入 */
@@ -81,8 +85,8 @@ export interface VideoTask {
   resolution?: string;
   ratio?: string;
   duration?: string;
-  /** 原请求时长超出模型上限, 已自动下调到上限(前端提示用) */
-  clampedFrom?: number;
+  /** 原请求时长超出模型接口上限, 已按接口返回的上限下调(前端提示用) */
+  durationAdjustedFrom?: number;
   imageUrl?: string | null;
   status: VideoTaskStatus;
   videoUrl?: string | null;

@@ -6,6 +6,7 @@ import path from "path";
 import { getDb, queryAll, queryOne, persist, normName, dataDir } from "@/lib/server/db";
 import { contentKey, type LibraryTable } from "@/lib/server/library";
 import type { ToolDef } from "@/lib/server/doubao";
+import { availableVideoModelsBrief } from "@/lib/server/video/probeVideo";
 
 // ---------- 名称/别名映射 ----------
 const TABLE_ALIAS: Record<string, LibraryTable> = {
@@ -398,8 +399,22 @@ export async function registerChatImages(urls: string[]): Promise<number[]> {
   return ids;
 }
 
+// ---------- 视频模型可用性探测(AI 真实依据, 非静态猜测) ----------
+const QUERY_VIDEO_MODELS_TOOL: ToolDef = {
+  name: "query_video_models",
+  description:
+    "查询当前账号真实可用的视频生成模型(实时探测方舟, 结果 24h 缓存)。用户问「我能用哪些视频模型/哪个模型没开通/生成视频选哪个模型」时调用; 生成前拿不准可用性时也可以先查。切记: 是否开通一律以本工具结果为准, 不要凭模型名称或描述猜测。",
+  parameters: { type: "object", properties: {} },
+};
+
+async function execQueryVideoModels(_args: Record<string, unknown>): Promise<string> {
+  const brief = await availableVideoModelsBrief();
+  return JSON.stringify({ ok: true, detail: `视频模型可用性(探测结果): ${brief}` });
+}
+
 // ---------- 注册表(route.ts 统一挂载) ----------
 export const DATA_TOOLS: ToolDef[] = [
+  QUERY_VIDEO_MODELS_TOOL,
   QUERY_LIB_TOOL, QUERY_SCRIPT_TOOL,
   UPDATE_LIB_TOOL, UPDATE_SCRIPT_TOOL,
   DELETE_LIB_TOOL, DELETE_SCRIPT_TOOL,
@@ -407,6 +422,7 @@ export const DATA_TOOLS: ToolDef[] = [
 
 /** 工具名 → 执行函数; 返回 null 表示不是本文件负责的工具 */
 const HANDLERS: Record<string, (args: Record<string, unknown>) => Promise<string>> = {
+  query_video_models: execQueryVideoModels,
   query_library: execQueryLibrary,
   query_script: execQueryScript,
   update_library: execUpdateLibrary,

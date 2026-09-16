@@ -134,11 +134,11 @@ export default function ConsoleModule() {
           duration,
         }),
       });
-      const j = (await r.json()) as { ok?: boolean; detail?: string; task?: { id?: string; status?: string; duration?: string; clampedFrom?: number } };
+      const j = (await r.json()) as { ok?: boolean; detail?: string; task?: { id?: string; status?: string; duration?: string; durationAdjustedFrom?: number } };
       if (!r.ok || !j.ok) throw new Error(j.detail || `HTTP ${r.status}`);
-      // 时长超出模型上限 → 服务端已自动下调到上限, 提示用户
-      if (j.task?.clampedFrom) {
-        message.warning(`该模型时长上限 ${j.task.duration || ""} 秒，已自动调整（原设 ${j.task.clampedFrom} 秒）`);
+      // 时长超出模型接口上限 → 已按接口返回的上限调整, 提示用户
+      if (j.task?.durationAdjustedFrom) {
+        message.warning(`该模型时长上限 ${j.task.duration || ""} 秒（接口返回），已自动调整（原设 ${j.task.durationAdjustedFrom} 秒）`);
       }
       message.success(`已提交生成任务，约 1-3 分钟完成`);
       watchTask(j.task?.id || ""); // 进后台轮询, 完成后给提示
