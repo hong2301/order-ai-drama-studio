@@ -6,6 +6,7 @@ import { DeleteOutlined, FolderOpenOutlined, PaperClipOutlined, PlusOutlined, Se
 import type { ColumnsType } from "antd/es/table";
 import zhCN from "antd/locale/zh_CN";
 import type { UploadFile } from "antd/es/upload/interface";
+import ImageGalleryModal, { type GalleryImage } from "./ImageGalleryModal";
 
 interface ImageItem { id: number; path: string; name: string; description: string }
 interface CardItem {
@@ -14,7 +15,7 @@ interface CardItem {
   identity: string[];
   prompt: string;
   image_ids: number[];
-  images?: ImageItem[];
+  images?: GalleryImage[];
   created_at: string;
 }
 
@@ -54,6 +55,8 @@ export default function InfoCardModule(props: {
   // 图片资源库
   const [library, setLibrary] = useState<ImageItem[]>([]);
   const [pickedImgs, setPickedImgs] = useState<number[]>([]); // 弹窗内已选图片 ids
+  // 图库管理弹窗(点击列表缩略图打开)
+  const [gallery, setGallery] = useState<{ open: boolean; record: CardItem | null }>({ open: false, record: null });
 
   const filterRef = useRef<{ kw: string }>({ kw: "" });
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -364,6 +367,30 @@ export default function InfoCardModule(props: {
         <Tooltip title={v} placement="topLeft"><span style={{ fontSize: 13 }}>{v}</span></Tooltip>
       ),
     },
+    {
+      title: "图片", key: "images", width: 96,
+      render: (_v, rec) => {
+        const imgs = rec.images || [];
+        return (
+          <div
+            onClick={(e) => { e.stopPropagation(); setGallery({ open: true, record: rec }); }}
+            title={imgs.length ? "点击管理图片" : "点击添加图片"}
+            style={{ display: "flex", alignItems: "center", gap: 3, cursor: "pointer", minHeight: 28, flexWrap: "wrap" }}
+          >
+            {imgs.slice(0, 3).map((img) => (
+              <img
+                key={img.id}
+                src={img.path}
+                alt={img.name}
+                style={{ width: 28, height: 28, borderRadius: 6, objectFit: "cover", border: "1px solid #eee", display: "block" }}
+              />
+            ))}
+            {imgs.length > 3 && <span style={{ fontSize: 11, color: "#999" }}>+{imgs.length - 3}</span>}
+            {imgs.length === 0 && <span style={{ fontSize: 15, color: "#ccc", lineHeight: "28px" }}>＋</span>}
+          </div>
+        );
+      },
+    },
     ...(showIdentity
       ? [{
           title: identityLabel, dataIndex: "identity", key: "identity", width: 110,
@@ -556,6 +583,17 @@ export default function InfoCardModule(props: {
           </Button>
         </div>
       </Modal>
+
+      {/* 图片管理弹窗(点击列表缩略图打开): 增删图片/改名, 确认后统一提交 */}
+      <ImageGalleryModal
+        open={gallery.open}
+        recordId={gallery.record?.id ?? 0}
+        recordName={gallery.record?.name ?? ""}
+        api={api}
+        images={gallery.record?.images || []}
+        onCancel={() => setGallery({ open: false, record: null })}
+        onSaved={() => { setGallery({ open: false, record: null }); applyFilter(); }}
+      />
 
       {/* 新增弹窗: 手动填写 / 粘贴提示词 / 上传文件或文件夹 */}
       <Modal open={modalOpen} title={`新增${title}`} onCancel={() => { setModalOpen(false); setPickedImgs([]); setPasteContent(""); setNewIdTag(""); }} footer={null} width={460} destroyOnHidden>
