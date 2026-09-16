@@ -24,6 +24,7 @@ data/
 
 # --- 工具/系统 ---
 tsconfig.tsbuildinfo
+dev-run.log
 .DS_Store
 Thumbs.db
 __pycache__/

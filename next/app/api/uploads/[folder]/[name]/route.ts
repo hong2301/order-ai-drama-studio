@@ -7,7 +7,7 @@ import { dataDir } from "@/lib/server/db";
 export const dynamic = "force-dynamic";
 
 const MIME: Record<string, string> = {
-  jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
+  jpg: "image/jpeg", jpeg: "image/jpeg", jfif: "image/jpeg", png: "image/png",
   gif: "image/gif", webp: "image/webp", svg: "image/svg+xml",
   pdf: "application/pdf",
   txt: "text/plain", md: "text/markdown", json: "application/json", csv: "text/csv",

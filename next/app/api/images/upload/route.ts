@@ -9,9 +9,9 @@ import { dataDir } from "@/lib/server/db";
 export const dynamic = "force-dynamic";
 
 const MAX_BYTES = 20 * 1024 * 1024;
-const ALLOW_EXT = ["jpg", "jpeg", "png", "gif", "webp"];
+const ALLOW_EXT = ["jpg", "jpeg", "jfif", "png", "gif", "webp"];
 const MIME: Record<string, string> = {
-  jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp",
+  jpg: "image/jpeg", jpeg: "image/jpeg", jfif: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp",
 };
 
 export async function POST(req: NextRequest): Promise<Response> {
