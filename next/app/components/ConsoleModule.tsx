@@ -14,6 +14,9 @@ interface VideoModelDef {
 
 const MODEL_STATUS_TXT: Record<string, string> = { active: "可用", retiring: "即将下线", inactive: "未开通" };
 
+/** 时长输入框允许的最大秒数: 不按模型硬限(部分模型支持 15 秒以上), 超出模型上限由服务端自动下调并提示 */
+const DURATION_INPUT_MAX = 60;
+
 /** 视频控制台模块: 模型切换 + 生成参数(分辨率/比例/时长) + 开始生成 */
 export default function ConsoleModule() {
   const { message } = AntApp.useApp();
@@ -87,8 +90,6 @@ export default function ConsoleModule() {
     return () => window.removeEventListener("library-link", onLink);
   }, []);
 
-  const curModel = models.find((m) => m.key === modelKey);
-
   /** 后台轮询任务直到终态: 成功/失败给消息, 成功触发视频库刷新 */
   const watchTask = useCallback((id: string): void => {
     if (pollRef.current[id]) return;
@@ -133,8 +134,12 @@ export default function ConsoleModule() {
           duration,
         }),
       });
-      const j = (await r.json()) as { ok?: boolean; detail?: string; task?: { id?: string; status?: string } };
+      const j = (await r.json()) as { ok?: boolean; detail?: string; task?: { id?: string; status?: string; duration?: string; clampedFrom?: number } };
       if (!r.ok || !j.ok) throw new Error(j.detail || `HTTP ${r.status}`);
+      // 时长超出模型上限 → 服务端已自动下调到上限, 提示用户
+      if (j.task?.clampedFrom) {
+        message.warning(`该模型时长上限 ${j.task.duration || ""} 秒，已自动调整（原设 ${j.task.clampedFrom} 秒）`);
+      }
       message.success(`已提交生成任务，约 1-3 分钟完成`);
       watchTask(j.task?.id || ""); // 进后台轮询, 完成后给提示
     } catch (e) {
@@ -175,18 +180,19 @@ export default function ConsoleModule() {
           <Space.Compact size="small">
             <InputNumber
               min={1}
-              max={curModel?.presets?.durationMax || 12}
+              max={DURATION_INPUT_MAX}
               value={duration}
               onChange={(v) => {
-                const max = curModel?.presets?.durationMax || 12;
-                const n = Math.min(max, Math.max(1, Number(v) || 1));
+                // 不再按模型硬限 12 秒: 允许输入更长时长(部分模型支持 15 秒以上)
+                // 超出模型上限时由服务端自动下调到上限并提示
+                const n = Math.min(DURATION_INPUT_MAX, Math.max(1, Number(v) || 1));
                 setDuration(n);
                 syncToScript({ duration: n });
               }}
               style={{ width: 96 }}
             />
             <div style={{ padding: "0 10px", background: "#f5f5f5", borderLeft: "1px solid #eee", display: "flex", alignItems: "center", fontSize: 12, color: "#666" }}>
-              秒 ≤{curModel?.presets?.durationMax || 12}
+              秒
             </div>
           </Space.Compact>
         </div>

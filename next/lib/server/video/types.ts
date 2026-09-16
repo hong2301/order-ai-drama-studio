@@ -81,6 +81,8 @@ export interface VideoTask {
   resolution?: string;
   ratio?: string;
   duration?: string;
+  /** 原请求时长超出模型上限, 已自动下调到上限(前端提示用) */
+  clampedFrom?: number;
   imageUrl?: string | null;
   status: VideoTaskStatus;
   videoUrl?: string | null;

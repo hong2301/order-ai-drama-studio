@@ -94,8 +94,12 @@ export async function createVideoTask(input: {
   if (input.duration && (p ? !p.duration : true)) {
     throw new Error(`模型「${def.name}」不支持自定义时长`);
   }
+  // 时长超模型上限 → 不下发报错, 自动下调到上限并标记 clampedFrom(前端/AI 提示用户)
+  let duration = input.duration;
+  let clampedFrom: number | undefined;
   if (input.duration && p?.durationMax && input.duration > p.durationMax) {
-    throw new Error(`模型「${def.name}」时长上限 ${p.durationMax} 秒(已设 ${input.duration} 秒)`);
+    clampedFrom = input.duration;
+    duration = p.durationMax;
   }
 
   const t = await provider.submit({
@@ -104,7 +108,7 @@ export async function createVideoTask(input: {
     imageUrl: input.imageUrl || null,
     resolution: input.resolution,
     ratio: input.ratio,
-    duration: input.duration,
+    duration,
   });
   await ensureVideoTables();
   const now = new Date().toISOString();
@@ -117,7 +121,8 @@ export async function createVideoTask(input: {
     prompt: input.prompt,
     resolution: input.resolution || "",
     ratio: input.ratio || "",
-    duration: input.duration ? String(input.duration) : "",
+    duration: duration ? String(duration) : "",
+    clampedFrom,
     imageUrl: input.imageUrl || null,
     status: t.status,
     videoUrl: t.videoUrl || null,
