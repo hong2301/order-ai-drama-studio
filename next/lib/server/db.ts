@@ -151,6 +151,27 @@ function initSchema(db: Database): void {
     );
   `);
 
+  // 对话表: 会话列表 + 消息(替代前端 localStorage, 随数据库持久化)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS conversations (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      title      TEXT DEFAULT '新对话',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS messages (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      conv_id    INTEGER NOT NULL,
+      role       TEXT NOT NULL,
+      content    TEXT DEFAULT '',
+      images     TEXT DEFAULT '[]',
+      created_at TEXT NOT NULL
+    );
+  `);
+  db.run("CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conv_id)");
+
   // 人物表: 名称 + 身份(JSON数组) + 提示词 + 图片ids(JSON数组, 关联 images 表)
   db.run(`
     CREATE TABLE IF NOT EXISTS characters (
@@ -216,4 +237,18 @@ export async function setSetting(key: string, value: string): Promise<void> {
     [key, value]
   );
   await persist();
+}
+
+/**
+ * API Key(豆包/火山方舟): 以数据库 settings.doubao_api_key 为准;
+ * env(DOUBAO_API_KEY) 仅作兜底, 首次读到会自动迁移入库(此后以库为准, 界面可改)
+ */
+export async function getApiKey(): Promise<string> {
+  const stored = await getSetting<string>("doubao_api_key", "");
+  if (stored) return stored;
+  const envKey = process.env.DOUBAO_API_KEY || "";
+  if (envKey) {
+    try { await setSetting("doubao_api_key", envKey); } catch { /* ignore */ }
+  }
+  return envKey;
 }

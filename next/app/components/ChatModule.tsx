@@ -6,7 +6,7 @@ import { FileOutlined, FilePdfOutlined, FileTextOutlined, FileWordOutlined, Load
 
 interface Msg { role: "user" | "assistant"; content: string; images?: string[] }
 interface Att { name: string; url: string }
-interface Conv { id: string; title: string; updatedAt: number; messages: Msg[] }
+interface Conv { id: number; title: string; updatedAt: number; messages: Msg[] }
 // 全模型(对话模块切换用; 服务端已过滤为可输入 图片/视频/文本 的多模态对话模型, 含综合费用/百万token)
 interface ArkModel { id: string; label: string; price: number }
 
@@ -43,33 +43,35 @@ function deriveTitle(msgs: Msg[]): string {
   return t ? (t.length > 18 ? `${t.slice(0, 18)}…` : t) : "新对话";
 }
 
-/** 加载全部会话(含旧单会话历史迁移) */
-function loadConvs(): { convs: Conv[]; activeId: string | null } {
+/** 旧版本 localStorage 会话数据: 首次加载时迁移到数据库, 迁移后清除(不再使用 localStorage) */
+function readLegacyConvs(): Conv[] {
   try {
     const raw = localStorage.getItem(CONVS_KEY);
     if (raw) {
-      const d = JSON.parse(raw) as { convs?: Conv[]; activeId?: string | null };
-      if (d && Array.isArray(d.convs)) return { convs: d.convs, activeId: d.activeId ?? null };
+      const d = JSON.parse(raw) as { convs?: { title?: unknown; updatedAt?: unknown; messages?: unknown }[] };
+      localStorage.removeItem(CONVS_KEY);
+      const list = Array.isArray(d?.convs) ? d.convs : [];
+      const out = list
+        .filter((c) => Array.isArray(c.messages) && (c.messages as Msg[]).length > 0)
+        .map((c) => ({
+          id: 0,
+          title: typeof c.title === "string" && c.title ? c.title : "新对话",
+          updatedAt: typeof c.updatedAt === "number" ? c.updatedAt : Date.now(),
+          messages: c.messages as Msg[],
+        }));
+      if (out.length) return out;
     }
     const old = localStorage.getItem(LEGACY_KEY);
     if (old) {
+      localStorage.removeItem(LEGACY_KEY);
       const arr = JSON.parse(old) as unknown;
       if (Array.isArray(arr) && arr.length) {
         const msgs = arr.filter((m): m is Msg => !!m && ((m as Msg).role === "user" || (m as Msg).role === "assistant") && typeof (m as Msg).content === "string");
-        const id = `c_${Date.now()}_old`;
-        localStorage.removeItem(LEGACY_KEY);
-        return { convs: [{ id, title: deriveTitle(msgs), updatedAt: Date.now(), messages: msgs.slice(-50) }], activeId: id };
+        if (msgs.length) return [{ id: 0, title: deriveTitle(msgs), updatedAt: Date.now(), messages: msgs.slice(-50) }];
       }
     }
   } catch { /* ignore */ }
-  return { convs: [], activeId: null };
-}
-function saveConvs(convs: Conv[], activeId: string | null): void {
-  try {
-    // 空会话不入库(仅当前会话例外, 保证重启后还能接着写)
-    const keep = convs.filter((c) => c.messages.length > 0 || c.id === activeId);
-    localStorage.setItem(CONVS_KEY, JSON.stringify({ convs: keep.slice(-30), activeId }));
-  } catch { /* ignore */ }
+  return [];
 }
 
 /** AI 对话模块(第一个模块, 无标题): 对话区 + 底部一体输入框(附件/发送) */
@@ -82,10 +84,11 @@ export default function ChatModule() {
   const [preview, setPreview] = useState<Att | null>(null); // 图片点击预览(带文件名)
   const [uploading, setUploading] = useState(0);
   const [loading, setLoading] = useState(true); // 历史是否已恢复(避免首屏闪历史)
-  const [convs, setConvs] = useState<Conv[]>([]);       // 全部会话
-  const [convId, setConvId] = useState<string | null>(null); // 当前会话 id
+  const [convs, setConvs] = useState<Conv[]>([]);       // 全部会话(消息按需加载)
+  const [convId, setConvId] = useState<number | null>(null); // 当前会话 id(数据库自增)
   const [listOpen, setListOpen] = useState(false);      // 会话列表面板是否展开
-  const [menu, setMenu] = useState<{ x: number; y: number; id: string } | null>(null); // 右键菜单
+  const [menu, setMenu] = useState<{ x: number; y: number; id: number } | null>(null); // 右键菜单
+  const skipSaveRef = useRef(false); // 切换/新建会话期间跳过自动保存(避免把空消息写回去)
   // 模型切换: 服务端已适配好的多模态对话模型
   const [arkModels, setArkModels] = useState<ArkModel[]>([]);
   const [chatModel, setChatModel] = useState<string | null>(null); // null = 用服务端默认模型
@@ -94,23 +97,45 @@ export default function ChatModule() {
   const listRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
-  // 首次加载: 恢复会话(优先有消息的会话, 避免打开空对话)
+  // 首次加载: 旧 localStorage 迁移入库 + 拉会话列表 + 打开最近会话(消息按需 GET)
   useEffect(() => {
-    const { convs: cs, activeId } = loadConvs();
-    let cur: Conv | null = cs.find((c) => c.id === activeId) || cs[cs.length - 1] || null;
-    if (cur && cur.messages.length === 0) {
-      // 上次停在空会话(历史遗留): 回退到最近有消息的会话
-      const withMsg = [...cs].filter((c) => c.messages.length > 0).sort((a, b) => b.updatedAt - a.updatedAt)[0];
-      if (withMsg) cur = withMsg;
-    }
-    if (!cur) {
-      cur = { id: `c_${Date.now()}`, title: "新对话", updatedAt: Date.now(), messages: [] };
-      cs.push(cur);
-    }
-    setConvs(cs);
-    setConvId(cur.id);
-    setMessages(cur.messages);
-    setLoading(false);
+    void (async () => {
+      try {
+        // 1) 旧 localStorage 数据一次性迁移到数据库(已读即清)
+        for (const c of readLegacyConvs()) {
+          try {
+            const r = await fetch("/api/conversations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: c.title }) });
+            const j = (await r.json()) as { id?: number };
+            if (j.id && c.messages.length) {
+              await fetch(`/api/conversations/${j.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: c.messages }) });
+            }
+          } catch { /* 单条迁移失败不影响 */ }
+        }
+        // 2) 会话列表(最近在前)
+        const r = await fetch("/api/conversations");
+        const j = (await r.json()) as { items?: { id: number; title: string; updated_at: string }[] };
+        let list = (j.items || []).map((x) => ({ id: x.id, title: x.title || "新对话", updatedAt: Date.parse(x.updated_at) || Date.now(), messages: [] as Msg[] }));
+        let cur: Conv | null = list[0] || null;
+        // 3) 无任何会话 → 新建一个空的
+        if (!cur) {
+          const cr = await fetch("/api/conversations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+          const cj = (await cr.json()) as { id?: number; title?: string };
+          cur = { id: cj.id || 0, title: cj.title || "新对话", updatedAt: Date.now(), messages: [] };
+          list = [cur];
+        }
+        // 4) 打开最近会话并加载其消息
+        if (cur) {
+          const dr = await fetch(`/api/conversations/${cur.id}`);
+          const dj = (await dr.json()) as { messages?: Msg[] };
+          cur = { ...cur, messages: dj.messages || [] };
+          list = list.map((x) => (x.id === cur!.id ? cur! : x));
+          setMessages(cur.messages);
+          setConvId(cur.id);
+        }
+        setConvs(list);
+      } catch { /* 加载失败: 前端仍可新建(空态) */ }
+      finally { setLoading(false); }
+    })();
   }, []);
 
   // 加载已适配的多模态对话模型(默认选中 .env 配置的模型)
@@ -139,79 +164,87 @@ export default function ChatModule() {
     }).catch(() => { /* 静默 */ });
   };
 
-  // 当前会话消息变化: 自动保存内容(标题/消息), 但**不**更新时间戳
-  // (时间只在真正发消息时由 touchConv 更新, 否则切换会话查看会把时间刷成"刚刚")
+  // 当前会话消息变化: 自动保存到数据库(标题: 非"新对话"则保留, 否则取首条用户消息)
   useEffect(() => {
-    if (loading || !convId) return;
+    if (loading || !convId || skipSaveRef.current) return;
     setConvs((prev) => {
       const next = prev.map((c) =>
         c.id === convId
           ? { ...c, messages, title: c.title !== "新对话" ? c.title : deriveTitle(messages) }
           : c,
       );
-      saveConvs(next, convId);
+      const cur = next.find((c) => c.id === convId);
+      if (cur) {
+        void fetch(`/api/conversations/${convId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: cur.title, messages: cur.messages }),
+        }).catch(() => { /* 静默 */ });
+      }
       return next;
     });
   }, [messages, loading, convId]);
 
-  // 更新当前会话的最后对话时间(精确到毫秒存储, 前端自行格式化为 刚刚/N分钟前/年月日时分)
+  // 更新当前会话的最后对话时间(仅刷新 updated_at)
   const touchConv = (): void => {
     if (!convId) return;
-    setConvs((prev) => {
-      const next = prev.map((c) => (c.id === convId ? { ...c, updatedAt: Date.now() } : c));
-      saveConvs(next, convId);
-      return next;
-    });
+    setConvs((prev) => prev.map((c) => (c.id === convId ? { ...c, updatedAt: Date.now() } : c)));
+    void fetch(`/api/conversations/${convId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    }).catch(() => { /* 静默 */ });
   };
 
-  // 切换到某个历史会话
-  const openConv = (id: string): void => {
-    const c = convs.find((x) => x.id === id);
-    if (!c) return;
-    // 切换前先把当前会话的最新消息落库(内容不变更时间)
-    if (convId && convId !== id) {
-      setConvs((prev) => {
-        const next = prev.map((x) => (x.id === convId ? { ...x, messages } : x));
-        saveConvs(next, id);
-        return next;
-      });
-    }
-    setConvId(id);
-    setMessages([...c.messages]); // 拷贝, 不共享引用
-    setAtts([]);
-    setListOpen(false);
-  };
-  // 新建会话(顺便丢弃其它空会话, 避免列表堆积)
-  const newConv = (): void => {
-    const id = `c_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-    const c: Conv = { id, title: "新对话", updatedAt: Date.now(), messages: [] };
-    setConvs((prev) => {
-      const next = [...prev.filter((x) => x.messages.length > 0), c];
-      saveConvs(next, id);
-      return next;
-    });
+  // 切换到某个历史会话(消息从数据库加载)
+  const openConv = (id: number): void => {
+    if (id === convId) { setListOpen(false); return; }
+    skipSaveRef.current = true;
     setConvId(id);
     setMessages([]);
     setAtts([]);
     setListOpen(false);
+    // 加载该会话的消息(成功后恢复自动保存)
+    void fetch(`/api/conversations/${id}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("加载失败"))))
+      .then((j: { messages?: Msg[] }) => {
+        const ms = j.messages || [];
+        setMessages(ms);
+        setConvs((prev) => prev.map((x) => (x.id === id ? { ...x, messages: ms } : x)));
+      })
+      .catch(() => { /* 静默 */ })
+      .finally(() => { setTimeout(() => { skipSaveRef.current = false; }, 0); });
   };
-  // 删除会话(右键菜单触发); 删的是当前会话则切到最近一个, 全删光则新建空会话
-  const delConv = (id: string): void => {
+
+  // 新建会话(数据库创建; 服务端会清理无消息空会话)
+  const newConv = (): void => {
+    void (async () => {
+      try {
+        const r = await fetch("/api/conversations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+        const j = (await r.json()) as { ok?: boolean; id?: number; title?: string };
+        if (!j.ok || !j.id) return;
+        const c: Conv = { id: j.id, title: j.title || "新对话", updatedAt: Date.now(), messages: [] };
+        skipSaveRef.current = true;
+        setConvs((prev) => [c, ...prev.filter((x) => x.messages.length > 0 || x.id === convId)]);
+        setConvId(c.id);
+        setMessages([]);
+        setAtts([]);
+        setListOpen(false);
+        setTimeout(() => { skipSaveRef.current = false; }, 0);
+      } catch { /* 静默 */ }
+    })();
+  };
+
+  // 删除会话(右键菜单); 删当前会话则切到最近一个, 全删光则新建空会话
+  const delConv = (id: number): void => {
     setMenu(null);
+    void fetch(`/api/conversations/${id}`, { method: "DELETE" }).catch(() => { /* 静默 */ });
     const rest = convs.filter((c) => c.id !== id);
-    if (rest.length === 0) {
-      const c: Conv = { id: `c_${Date.now()}`, title: "新对话", updatedAt: Date.now(), messages: [] };
-      setConvs([c]); setConvId(c.id); setMessages([]); setAtts([]); saveConvs([c], c.id);
-      return;
-    }
+    if (rest.length === 0) { newConv(); return; }
     if (id === convId) {
-      const fb = rest[rest.length - 1];
-      setConvId(fb.id);
-      setMessages([...fb.messages]);
-      setAtts([]);
+      openConv(rest[0].id);
     }
     setConvs(rest);
-    saveConvs(rest, id === convId ? rest[rest.length - 1].id : convId);
   };
 
   useEffect(() => {
