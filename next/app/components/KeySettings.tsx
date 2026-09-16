@@ -31,7 +31,7 @@ export default function KeySettings(): React.JSX.Element {
       });
       const j = (await r.json()) as { ok?: boolean; detail?: string };
       if (!r.ok || !j.ok) throw new Error(j.detail || "保存失败");
-      message.success("API Key 已更新（即时生效，已写入 .env）");
+      message.success("API Key 已更新（已保存到数据库，即时生效）");
       setOpen(false);
     } catch (e) {
       message.error((e as Error).message);
@@ -51,7 +51,7 @@ export default function KeySettings(): React.JSX.Element {
       />
       <Modal open={open} title="API Key 设置" onCancel={() => setOpen(false)} footer={null} width={460} destroyOnHidden>
         <p style={{ fontSize: 12, color: "#888", margin: "0 0 8px" }}>
-          DOUBAO_API_KEY（豆包/火山方舟）。保存后即时生效并写入根 .env，对话 / 解析 / 生成均使用。
+          DOUBAO_API_KEY（豆包/火山方舟）。保存后存入数据库并即时生效，对话 / 解析 / 生成 / 探测均使用。
         </p>
         <Input.Password
           value={key}

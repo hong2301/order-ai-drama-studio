@@ -8,7 +8,7 @@ import fs from "fs";
 import path from "path";
 import mammoth from "mammoth";
 import { chat, DoubaoError, type ToolDef } from "@/lib/server/doubao";
-import { dataDir, getDb, persist } from "@/lib/server/db";
+import { dataDir, getDb, persist, getApiKey } from "@/lib/server/db";
 import type { Database } from "sql.js";
 
 export const dynamic = "force-dynamic";
@@ -106,8 +106,8 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   // ---------- 2) 调豆包提取字段 ----------
   const result: { value: { name?: string; identity?: string[]; prompt?: string } | null } = { value: null };
-  const apiKey = process.env.DOUBAO_API_KEY || "";
-  if (!apiKey) return Response.json({ detail: "未配置 DOUBAO_API_KEY" }, { status: 500 });
+  const apiKey = await getApiKey();
+  if (!apiKey) return Response.json({ detail: "未配置 API Key(请点右上角 API Key 按钮设置)" }, { status: 500 });
   const modelId = process.env.DOUBAO_CHAT_MODEL || "doubao-seed-2-0-mini-260428";
 
   const sourceNote = files.length

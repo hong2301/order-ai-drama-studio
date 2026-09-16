@@ -2,7 +2,7 @@
 // 同名(容错细微字符差异) → 合并身份/图片, 提示词用 AI 融合(保留双方信息); 避免重复记录
 import crypto from "crypto";
 import { getDb, persist, queryOne, queryAll, normName } from "@/lib/server/db";
-import { getSetting } from "@/lib/server/db";
+import { getSetting, getApiKey } from "@/lib/server/db";
 import { chat } from "@/lib/server/doubao";
 import type { Database } from "sql.js";
 
@@ -27,7 +27,7 @@ async function mergePrompts(name: string, oldP: string, newP: string): Promise<s
   if (a.includes(b)) return a;
   if (b.includes(a)) return b;
   const longer = b.length > a.length ? b : a;
-  const apiKey = process.env.DOUBAO_API_KEY || "";
+  const apiKey = await getApiKey();
   if (!apiKey) return longer;
   try {
     const model = await getSetting("chat_model", process.env.DOUBAO_CHAT_MODEL || "doubao-seed-2-0-mini-260428");

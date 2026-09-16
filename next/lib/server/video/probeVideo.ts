@@ -6,7 +6,7 @@
 // 结果缓存 24h(data/model_probe_video.json); 探测为多模型并发, 首次约 10-30 秒
 import fs from "fs";
 import path from "path";
-import { dataDir } from "@/lib/server/db";
+import { dataDir, getApiKey } from "@/lib/server/db";
 import { activeModelDefs, MODELS } from "./registry";
 import type { VideoModelDef } from "./types";
 
@@ -27,8 +27,8 @@ export interface VideoProbeItem {
   note: string;
 }
 
-function apiKey(): string {
-  return process.env.DOUBAO_API_KEY || "";
+function apiKey(): Promise<string> {
+  return getApiKey();
 }
 
 async function probeOne(def: VideoModelDef): Promise<VideoProbeItem["status"]> {

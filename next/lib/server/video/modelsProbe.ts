@@ -5,7 +5,7 @@
 
 import fs from "fs";
 import path from "path";
-import { dataDir } from "@/lib/server/db";
+import { dataDir, getApiKey } from "@/lib/server/db";
 
 /**
  * 对话模型费用表(元/百万 token, 输入+输出→综合费用; 以火山方舟计费页为准, 可随时改)
@@ -53,7 +53,7 @@ interface RawModel {
 }
 
 async function fetchArkModels(): Promise<RawModel[]> {
-  const key = process.env.DOUBAO_API_KEY || "";
+  const key = await getApiKey();
   const resp = await fetch("https://ark.cn-beijing.volces.com/api/v3/models", {
     headers: { Authorization: `Bearer ${key}` },
     signal: AbortSignal.timeout(20000),
@@ -78,7 +78,7 @@ function isCandidate(m: RawModel): boolean {
 /** 单模型探测: 轻量对话, 返回是否可用 */
 async function probeOne(model: string): Promise<boolean> {
   try {
-    const key = process.env.DOUBAO_API_KEY || "";
+    const key = await getApiKey();
     const resp = await fetch("https://ark.cn-beijing.volces.com/api/v3/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },

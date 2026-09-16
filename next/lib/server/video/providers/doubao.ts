@@ -2,14 +2,14 @@
 // 创建: POST /api/v3/contents/generations/tasks  查询: GET .../tasks/{id}
 import fs from "fs";
 import path from "path";
-import { dataDir } from "@/lib/server/db";
+import { dataDir, getApiKey } from "@/lib/server/db";
 import type { VideoProvider, VideoProviderTask, VideoSubmitRequest, VideoTaskStatus } from "../types";
 
 const ARK_API = "https://ark.cn-beijing.volces.com/api/v3";
 
-function apiKey(): string {
-  const k = process.env.DOUBAO_API_KEY || "";
-  if (!k) throw new Error("未配置 DOUBAO_API_KEY(见项目根 .env)");
+async function apiKey(): Promise<string> {
+  const k = (await getApiKey()).trim();
+  if (!k) throw new Error("未配置 API Key(请点右上角 API Key 按钮设置)");
   return k;
 }
 
@@ -32,7 +32,7 @@ const STATUS_MAP: Record<string, VideoTaskStatus> = {
 async function request<T>(pathname: string, init?: RequestInit): Promise<T> {
   const resp = await fetch(`${ARK_API}${pathname}`, {
     ...init,
-    headers: { Authorization: `Bearer ${apiKey()}`, "Content-Type": "application/json", ...(init?.headers || {}) },
+    headers: { Authorization: `Bearer ${await apiKey()}`, "Content-Type": "application/json", ...(init?.headers || {}) },
   });
   const text = await resp.text();
   if (!resp.ok) {

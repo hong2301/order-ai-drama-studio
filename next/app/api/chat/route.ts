@@ -5,7 +5,7 @@ import fs from "fs";
 import path from "path";
 import mammoth from "mammoth";
 import { chat, DoubaoError, type ChatMsg, type ToolDef } from "@/lib/server/doubao";
-import { dataDir, getDb, persist } from "@/lib/server/db";
+import { dataDir, getDb, persist, getApiKey } from "@/lib/server/db";
 import { SYSTEM_PROMPT } from "@/lib/server/chatSystem";
 import { DATA_TOOLS, execDataTool, DATA_TOOL_WRITES, registerChatImages } from "@/lib/server/chatDataTools";
 import { createVideoTask, ensureVideoTables } from "@/lib/server/video";
@@ -321,8 +321,8 @@ export async function POST(req: NextRequest): Promise<Response> {
   ];
   history.push({ role: "user", content: attachText ? `${message}\n${attachText}` : message, images, videos });
 
-  const apiKey = process.env.DOUBAO_API_KEY || "";
-  if (!apiKey) return Response.json({ detail: "未配置 DOUBAO_API_KEY(见项目根 .env)" }, { status: 400 });
+  const apiKey = await getApiKey();
+  if (!apiKey) return Response.json({ detail: "未配置 API Key(请点右上角 API Key 按钮设置)" }, { status: 400 });
   // 模型优先级: 前端传入 > 环境变量 > 默认(前端切换模型时传)
   const modelId = String(b.model || "").trim() || process.env.DOUBAO_CHAT_MODEL || "doubao-seed-2-0-mini-260428";
 

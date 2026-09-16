@@ -1,7 +1,7 @@
 // 剧本解析: 从剧本内容识别【人物/场景/产品】→ 三库查重写入并关联;
 // 同时提取 清晰度/时长/比例 + 关键词(剔除已知信息). 供添加时自动调用与右键手动解析共用
 import { chat, type ToolDef } from "@/lib/server/doubao";
-import { getDb, persist, queryOne, queryAll, getSetting } from "@/lib/server/db";
+import { getDb, persist, queryOne, queryAll, getSetting, getApiKey } from "@/lib/server/db";
 import { upsertLibraryRecord } from "@/lib/server/library";
 import fs from "fs";
 import path from "path";
@@ -107,8 +107,8 @@ export async function parseScript(scriptId: number): Promise<{ ok: boolean; deta
   const text = plainText(String(row.content || ""));
   if (!text) { log(`解析失败 剧本${scriptId}: 内容为空`); return { ok: false, detail: "剧本内容为空，无法解析" }; }
 
-  const apiKey = process.env.DOUBAO_API_KEY || "";
-  if (!apiKey){ log(`解析失败 剧本${scriptId}: 未配置 DOUBAO_API_KEY`); return { ok: false, detail: "未配置 DOUBAO_API_KEY" }; }
+  const apiKey = await getApiKey();
+  if (!apiKey){ log(`解析失败 剧本${scriptId}: 未配置 API Key(请右上角设置)`); return { ok: false, detail: "未配置 API Key" }; }
   // 解析模型与 AI 对话模块当前选择同步(无则用环境变量默认)
   const modelId = await getSetting("chat_model", process.env.DOUBAO_CHAT_MODEL || "doubao-seed-2-0-mini-260428");
 

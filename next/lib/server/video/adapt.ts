@@ -1,7 +1,7 @@
 // 剧本一致性检查 + 剧情适配: 生成前把"已配置的人物/场景/产品"与"固定提示词(剧情)"对齐
 // 用 AI 对话模块当前选择的模型(settings.chat_model, 与解析同源), 输出适配后的完整生成提示词
 import { chat, type ToolDef } from "@/lib/server/doubao";
-import { getSetting } from "@/lib/server/db";
+import { getSetting, getApiKey } from "@/lib/server/db";
 
 export interface ScriptMaterial {
   name: string;
@@ -41,7 +41,7 @@ const ADAPT_TOOL: ToolDef = {
 export async function adaptPrompt(input: AdaptInput): Promise<{ prompt: string; notes: string[] } | null> {
   // 没有任何已配置物料 → 无需适配
   if (!input.characters.length && !input.scenes.length && !input.products.length) return null;
-  const apiKey = process.env.DOUBAO_API_KEY || "";
+  const apiKey = await getApiKey();
   if (!apiKey) return null;
   // 与 AI 对话模块当前选择的模型同步(无则用环境变量默认)
   const model = await getSetting("chat_model", process.env.DOUBAO_CHAT_MODEL || "doubao-seed-2-0-mini-260428");
