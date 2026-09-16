@@ -108,10 +108,10 @@ def main() -> int:
     subprocess.run(["iconutil", "-c", "icns", iconset, "-o", icns_out], check=True)
     print("-> electron/icon.icns")
 
-    # ICO (win 多尺寸)
+    # ICO (win 多尺寸): PIL 保存 ICO 只按 sizes 参数从单张图缩放生成(append_images 对 ICO 不生效)
     ico_out = os.path.join(ROOT, "electron", "icon.ico")
-    cards = [rounded_card(base, px, SCALE, RADIUS_RATIO) for px in (16, 32, 48, 64, 128, 256)]
-    cards[0].save(ico_out, sizes=[(im.size[0], im.size[1]) for im in cards], append_images=cards[1:])
+    rounded_card(base, 256, SCALE, RADIUS_RATIO).save(
+        ico_out, sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
     print("-> electron/icon.ico")
 
     print("✅ 全部图标已生成")
