@@ -1,5 +1,7 @@
 // 视频生成 facade —— API 层只跟这个文件打交道
-// 统一入口: 创建任务(写 DB) / 刷新任务(拉商家)+落库 / 模型列表
+// 统一入口: 创建任务(写 DB) / 刷新任务(拉商家+视频落盘本地)+落库 / 模型列表
+import fs from "fs";
+import path from "path";
 import { dataDir, getDb, persist, queryAll, queryOne } from "@/lib/server/db";
 import type { VideoTask, VideoTaskStatus } from "./types";
 import { getModelDef, getProvider, listModelDefs } from "./registry";
@@ -12,17 +14,21 @@ function rowToTask(r: Record<string, unknown>): VideoTask {
     provider: String(r.provider || ""),
     modelKey: String(r.model_key || ""),
     model: String(r.model || ""),
+    scriptName: r.script_name ? String(r.script_name) : "",
     prompt: String(r.prompt || ""),
     imageUrl: r.image_url ? String(r.image_url) : null,
     status: String(r.status) as VideoTaskStatus,
     videoUrl: r.video_url ? String(r.video_url) : null,
     error: r.error ? String(r.error) : null,
+    resolution: r.resolution ? String(r.resolution) : "",
+    ratio: r.ratio ? String(r.ratio) : "",
+    duration: r.duration ? String(r.duration) : "",
     createdAt: String(r.created_at),
     updatedAt: String(r.updated_at),
   };
 }
 
-/** 建表(sql.js 无 migrations, 幂等 CREATE IF NOT EXISTS) */
+/** 建表 + 迁移(sql.js 无 migrations, 幂等 CREATE/ALTER) */
 export async function ensureVideoTables(): Promise<void> {
   const db = await getDb();
   db.run(`
@@ -31,15 +37,26 @@ export async function ensureVideoTables(): Promise<void> {
       provider   TEXT DEFAULT 'doubao',
       model_key  TEXT DEFAULT '',
       model      TEXT DEFAULT '',
+      script_name TEXT DEFAULT '',
       prompt     TEXT DEFAULT '',
       image_url  TEXT DEFAULT '',
       status     TEXT DEFAULT 'queued',
       video_url  TEXT DEFAULT '',
       error      TEXT DEFAULT '',
+      resolution TEXT DEFAULT '',
+      ratio      TEXT DEFAULT '',
+      duration   TEXT DEFAULT '',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
   `);
+  try {
+    const cols = db.exec(`PRAGMA table_info(${TABLE})`)[0]?.values.map((r) => r[1]);
+    if (cols && !cols.includes("script_name")) db.run(`ALTER TABLE ${TABLE} ADD COLUMN script_name TEXT DEFAULT ''`);
+    if (cols && !cols.includes("resolution")) db.run(`ALTER TABLE ${TABLE} ADD COLUMN resolution TEXT DEFAULT ''`);
+    if (cols && !cols.includes("ratio")) db.run(`ALTER TABLE ${TABLE} ADD COLUMN ratio TEXT DEFAULT ''`);
+    if (cols && !cols.includes("duration")) db.run(`ALTER TABLE ${TABLE} ADD COLUMN duration TEXT DEFAULT ''`);
+  } catch { /* 已存在 */ }
   await persist();
 }
 
@@ -54,6 +71,8 @@ export async function createVideoTask(input: {
   resolution?: string;
   ratio?: string;
   duration?: number;
+  /** 关联剧本名(视频库展示用) */
+  scriptName?: string;
 }): Promise<VideoTask> {
   const def = getModelDef(input.modelKey);
   if (!def) throw new Error(`未知模型: ${input.modelKey}`);
@@ -75,6 +94,9 @@ export async function createVideoTask(input: {
   if (input.duration && (p ? !p.duration : true)) {
     throw new Error(`模型「${def.name}」不支持自定义时长`);
   }
+  if (input.duration && p?.durationMax && input.duration > p.durationMax) {
+    throw new Error(`模型「${def.name}」时长上限 ${p.durationMax} 秒(已设 ${input.duration} 秒)`);
+  }
 
   const t = await provider.submit({
     model: def.model,
@@ -91,7 +113,11 @@ export async function createVideoTask(input: {
     provider: def.provider,
     modelKey: def.key,
     model: def.model,
+    scriptName: input.scriptName || "",
     prompt: input.prompt,
+    resolution: input.resolution || "",
+    ratio: input.ratio || "",
+    duration: input.duration ? String(input.duration) : "",
     imageUrl: input.imageUrl || null,
     status: t.status,
     videoUrl: t.videoUrl || null,
@@ -101,13 +127,27 @@ export async function createVideoTask(input: {
   };
   const db = await getDb();
   db.run(
-    `INSERT INTO ${TABLE}(id,provider,model_key,model,prompt,image_url,status,video_url,error,created_at,updated_at)
-     VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
-    [task.id, task.provider, task.modelKey, task.model, task.prompt,
-     task.imageUrl || "", task.status, task.videoUrl || "", task.error || "", now, now],
+    `INSERT INTO ${TABLE}(id,provider,model_key,model,script_name,prompt,image_url,status,video_url,error,resolution,ratio,duration,created_at,updated_at)
+     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [task.id, task.provider, task.modelKey, task.model, task.scriptName, task.prompt,
+     task.imageUrl || "", task.status, task.videoUrl || "", task.error || "",
+     task.resolution || "", task.ratio || "", task.duration || "", now, now],
   );
   await persist();
   return task;
+}
+
+/** 下载商家视频到本地 data/uploads/videos/<id>.mp4, 返回本地 URL(失败留外链) */
+async function downloadVideo(id: string, url: string): Promise<string | null> {
+  try {
+    const resp = await fetch(url, { signal: AbortSignal.timeout(120000) });
+    if (!resp.ok) return null;
+    const buf = Buffer.from(await resp.arrayBuffer());
+    const dir = path.join(dataDir(), "uploads", "videos");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, `${id}.mp4`), buf);
+    return `/api/uploads/videos/${id}.mp4`;
+  } catch { return null; }
 }
 
 /** 拉商家最新状态并落库, 返回更新后的任务(不存在于本地则返回 null) */
@@ -116,8 +156,19 @@ export async function refreshVideoTask(id: string): Promise<VideoTask | null> {
   const row = queryOne(db, `SELECT * FROM ${TABLE} WHERE id=?`, [id]);
   if (!row) return null;
   const local = rowToTask(row);
-  // 已终态(成功/失败/取消)不需要再问商家
-  if (local.status === "succeeded" || local.status === "failed" || local.status === "cancelled") return local;
+  // 已终态(成功/失败/取消)不需要再问商家; 但成功的若还是商家外链(旧任务)则补下载本地化
+  if (local.status === "succeeded" || local.status === "failed" || local.status === "cancelled") {
+    if (local.status === "succeeded" && local.videoUrl && /^https?:\/\//.test(local.videoUrl)) {
+      const localUrl = await downloadVideo(id, local.videoUrl);
+      if (localUrl) {
+        const now = new Date().toISOString();
+        db.run(`UPDATE ${TABLE} SET video_url=?, updated_at=? WHERE id=?`, [localUrl, now, id]);
+        await persist();
+        return { ...local, videoUrl: localUrl, updatedAt: now };
+      }
+    }
+    return local;
+  }
 
   const provider = getProvider(local.provider);
   if (!provider) return local;
@@ -126,6 +177,11 @@ export async function refreshVideoTask(id: string): Promise<VideoTask | null> {
     fresh = await provider.get(id);
   } catch (e) {
     return { ...local, error: (e as Error).message };
+  }
+  // 成功且 video_url 是商家外链 → 下载到本地(方舟 URL 有时效, 视频库须持久保存)
+  if (fresh.status === "succeeded" && fresh.videoUrl && /^https?:\/\//.test(fresh.videoUrl)) {
+    const localUrl = await downloadVideo(id, fresh.videoUrl);
+    if (localUrl) fresh.videoUrl = localUrl;
   }
   const now = new Date().toISOString();
   db.run(
@@ -142,11 +198,32 @@ export async function refreshVideoTask(id: string): Promise<VideoTask | null> {
   };
 }
 
-/** 任务列表(最新的在前) */
-export async function listVideoTasks(limit = 50): Promise<VideoTask[]> {
+/** 任务列表(completed 按完成时间最新在前, 生成中的跟在后面; 分页) */
+export async function listVideoTasks(limit = 50, offset = 0): Promise<VideoTask[]> {
   const db = await getDb();
-  const rows = queryAll(db, `SELECT * FROM ${TABLE} ORDER BY created_at DESC LIMIT ?`, [limit]);
+  const rows = queryAll(
+    db,
+    `SELECT * FROM ${TABLE}
+     ORDER BY CASE status WHEN 'succeeded' THEN 0 else 1 END, updated_at DESC
+     LIMIT ? OFFSET ?`,
+    [limit, offset],
+  );
   return rows.map(rowToTask);
+}
+
+/** 删除任务记录 + 本地视频文件 */
+export async function deleteVideoTask(id: string): Promise<boolean> {
+  const db = await getDb();
+  const row = queryOne(db, `SELECT * FROM ${TABLE} WHERE id=?`, [id]);
+  if (!row) return false;
+  db.run(`DELETE FROM ${TABLE} WHERE id=?`, [id]);
+  await persist();
+  // 清理本地文件
+  try {
+    const f = path.join(dataDir(), "uploads", "videos", `${id}.mp4`);
+    if (fs.existsSync(f)) fs.unlinkSync(f);
+  } catch { /* ignore */ }
+  return true;
 }
 
 export { listModelDefs };

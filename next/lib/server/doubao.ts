@@ -1,11 +1,12 @@
 // 豆包(火山方舟 Ark) API 客户端: AI 对话 + 工具调用(function calling)
 const ARK_API = "https://ark.cn-beijing.volces.com/api/v3";
 
-/** 单条对话消息(images 为 data URL) */
+/** 单条对话消息(images/videos 为 data URL) */
 export interface ChatMsg {
-  role: "user" | "assistant";
+  role: "system" | "user" | "assistant";
   content: string;
   images?: string[];
+  videos?: string[];
 }
 
 /** 工具定义(OpenAI 兼容 schema) */
@@ -45,9 +46,9 @@ export async function chat(
   history: ChatMsg[],
   opts?: { tools?: ToolDef[]; onToolCall?: (name: string, args: Record<string, unknown>) => Promise<string> | string },
 ): Promise<string> {
-  // 历史 -> 豆包格式(每条含 text + 多张图片 data URL)
+  // 历史 -> 豆包格式(每条含 text + 图片/视频 data URL)
   const messages: Payload[] = history
-    .filter((h) => h && (h.role === "user" || h.role === "assistant") && typeof h.content === "string" && h.content.trim())
+    .filter((h) => h && (h.role === "system" || h.role === "user" || h.role === "assistant") && typeof h.content === "string" && h.content.trim())
     .map((h) => ({
       role: h.role,
       content: [
@@ -55,6 +56,9 @@ export async function chat(
         ...(h.images || [])
           .filter((u): u is string => !!u)
           .map((img) => ({ type: "image_url", image_url: { url: img } })),
+        ...(h.videos || [])
+          .filter((u): u is string => !!u)
+          .map((vid) => ({ type: "video_url", video_url: { url: vid } })),
       ],
     }));
   if (!messages.length) throw new DoubaoError("EmptyHistory", 400, "对话历史为空");

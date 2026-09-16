@@ -1,17 +1,23 @@
-// AI 对话: POST /api/chat {message, images?: string[](附件url), messages?: 历史}
-// 支持工具调用: 附件 txt/docx 内容注入上下文; add_script 工具把剧本内容写入剧本库
+// AI 对话: POST /api/chat {message, images?, videos?, messages?, model?}
+// 每次会话注入系统上下文(SYSTEM_PROMPT); 工具: 剧本/资料库读写 + 视频提取剧本 + 直接发起视频生成(操控控制台)
 import type { NextRequest } from "next/server";
 import fs from "fs";
 import path from "path";
 import mammoth from "mammoth";
 import { chat, DoubaoError, type ChatMsg, type ToolDef } from "@/lib/server/doubao";
 import { dataDir, getDb, persist } from "@/lib/server/db";
+import { SYSTEM_PROMPT } from "@/lib/server/chatSystem";
+import { createVideoTask, ensureVideoTables } from "@/lib/server/video";
+import { upsertLibraryRecord, type LibraryTable } from "@/lib/server/library";
 
-type Body = { message?: string; images?: string[]; messages?: ChatMsg[]; model?: string };
+type Body = { message?: string; images?: string[]; videos?: string[]; messages?: ChatMsg[]; model?: string };
 
 const MIME: Record<string, string> = {
   jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
   gif: "image/gif", webp: "image/webp",
+};
+const VIDEO_MIME: Record<string, string> = {
+  mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime", m4v: "video/mp4",
 };
 
 /** /api/uploads/<folder>/<name> -> 本地文件绝对路径(带扩展名校验) */
@@ -22,7 +28,7 @@ function uploadFilePath(url: string): string | null {
   return fs.existsSync(file) ? file : null;
 }
 
-/** 图片附件 -> data URL */
+/** 图片附件 -> data URL(≤10MB) */
 function localImageToDataUrl(url: string): string | null {
   const file = uploadFilePath(url);
   if (!file) return null;
@@ -30,6 +36,16 @@ function localImageToDataUrl(url: string): string | null {
   if (!MIME[ext]) return null;
   if (fs.statSync(file).size > 10 * 1024 * 1024) return null;
   return `data:${MIME[ext]};base64,${fs.readFileSync(file).toString("base64")}`;
+}
+
+/** 视频附件 -> data URL(≤30MB, 供模型读视频) */
+function localVideoToDataUrl(url: string): string | null {
+  const file = uploadFilePath(url);
+  if (!file) return null;
+  const ext = path.extname(file).slice(1).toLowerCase();
+  if (!VIDEO_MIME[ext]) return null;
+  if (fs.statSync(file).size > 30 * 1024 * 1024) return null;
+  return `data:${VIDEO_MIME[ext]};base64,${fs.readFileSync(file).toString("base64")}`;
 }
 
 /** 文本附件(txt/docx) -> 读取内容, 注入到消息里让 AI 可读; 其他返回 null */
@@ -139,23 +155,16 @@ function buildLibTool(name: string): ToolDef {
 
 const LIB_TOOLS: ToolDef[] = Object.keys(LIB_META).map((n) => buildLibTool(n));
 
-/** 写入资料库表(表名取自白名单, 防注入) */
-async function execLibAdd(table: string, args: Record<string, unknown>): Promise<string> {
+/** 写入资料库表(去重合并: 同名同提示词/同名 → 合并身份) */
+async function execLibAdd(table: LibraryTable, args: Record<string, unknown>): Promise<string> {
   const name = String(args.name ?? "").trim();
   const prompt = String(args.prompt ?? "").trim();
   if (!name) return JSON.stringify({ ok: false, detail: "名称不能为空" });
   if (!prompt) return JSON.stringify({ ok: false, detail: "提示词不能为空" });
-  const identity = Array.isArray(args.identity) ? args.identity.map((s) => String(s).trim()).filter(Boolean) : [];
-  const now = new Date().toISOString();
+  const identity = Array.isArray(args.identity) ? (args.identity as unknown[]).map(String) : [];
   try {
-    const db = await getDb();
-    db.run(
-      `INSERT INTO ${table}(name, identity, prompt, image_ids, created_at, updated_at) VALUES(?,?,?,?,?,?)`,
-      [name, JSON.stringify(identity), prompt, "[]", now, now],
-    );
-    const id = Number(db.exec("SELECT last_insert_rowid()")[0]?.values[0]?.[0] ?? 0);
-    await persist();
-    return JSON.stringify({ ok: true, id, name });
+    const r = await upsertLibraryRecord(table, { name, identity, prompt });
+    return JSON.stringify({ ok: true, id: r.id, merged: r.merged, name });
   } catch (e) {
     return JSON.stringify({ ok: false, detail: (e as Error).message });
   }
@@ -173,6 +182,94 @@ const READ_FILE_TOOL: ToolDef = {
   },
 };
 
+// ---------- 整理剧本 / 视频提取剧本 / 直接生成视频(操控控制台) ----------
+const TRANSFORM_TOOL: ToolDef = {
+  name: "transform_script",
+  description: "用户提供一大段想法/提示词并要求「整理成剧本/写一集剧本/生成剧本」时调用: 先把内容整理成符合规范的完整单集剧本(视频配置/人物/场景/产品/主剧情/各时间段内容/细节), 再保存进剧本库。",
+  parameters: {
+    type: "object",
+    properties: {
+      content: { type: "string", description: "整理后的完整剧本文本(按剧本输出格式的 Markdown)" },
+      name: { type: "string", description: "剧本名称(可选, 不填取内容首行)" },
+    },
+    required: ["content"],
+  },
+};
+
+const VIDEO_TO_SCRIPT_TOOL: ToolDef = {
+  name: "video_to_script",
+  description: "用户上传了视频并明确要求「提取为剧本/转成剧本/根据视频写剧本」时调用: 观看视频内容, 提取成符合规范的单集剧本并保存进剧本库。注意: 只有用户明确说要把视频转成剧本时才调用。",
+  parameters: {
+    type: "object",
+    properties: {
+      video_url: { type: "string", description: "视频附件地址, 如 /api/uploads/chat/xxx.mp4" },
+      name: { type: "string", description: "剧目名称(可选)" },
+    },
+    required: ["video_url"],
+  },
+};
+
+const CREATE_VIDEO_TOOL: ToolDef = {
+  name: "create_video",
+  description: "直接发起视频生成(等同于操控控制台的开始生成)。用户要求「生成视频/做一条视频/开始生成」且参数齐备时调用。生成异步进行, 成功后视频自动进视频库。",
+  parameters: {
+    type: "object",
+    properties: {
+      prompt: { type: "string", description: "画面描述提示词(可含人物/场景/产品描述与镜头细节)" },
+      model_key: { type: "string", description: "视频模型 key, 默认 doubao-seedance-1-0-pro-fast" },
+      resolution: { type: "string", description: "分辨率 480P/720P/1080P, 默认 720P" },
+      ratio: { type: "string", description: "画面比例 9:16/16:9/1:1, 默认 9:16" },
+      duration: { type: "number", description: "时长秒数 1-12, 默认 10" },
+    },
+    required: ["prompt"],
+  },
+};
+
+/** 直接创建视频生成任务(模型能力/时长上限由 createVideoTask 校验) */
+async function execCreateVideo(args: Record<string, unknown>): Promise<string> {
+  const prompt = String(args.prompt || "").trim();
+  if (!prompt) return JSON.stringify({ ok: false, detail: "提示词不能为空" });
+  try {
+    await ensureVideoTables();
+    const task = await createVideoTask({
+      modelKey: String(args.model_key || "doubao-seedance-1-0-pro-fast"),
+      prompt,
+      resolution: String(args.resolution || "720P"),
+      ratio: String(args.ratio || "9:16"),
+      duration: Number(args.duration) || 10,
+    });
+    return JSON.stringify({ ok: true, task_id: task.id, status: task.status, message: "视频任务已提交, 生成完成会自动进视频库" });
+  } catch (e) {
+    return JSON.stringify({ ok: false, detail: (e as Error).message });
+  }
+}
+
+/** 视频 → 单集剧本(观看后入库 + 解析) */
+async function execVideoToScript(apiKey: string, modelId: string, args: Record<string, unknown>): Promise<string> {
+  const videoDataUrl = localVideoToDataUrl(String(args.video_url || ""));
+  if (!videoDataUrl) return JSON.stringify({ ok: false, detail: "视频不存在或格式不支持(mp4/webm/mov, ≤30MB)" });
+  const instruction = [
+    "请观看这段视频, 提取其中的剧情内容, 输出一集短视频剧本(Markdown), 结构固定为:",
+    "1. 标题(系列名+集数+点题)",
+    "2. 视频配置(表格: 生成模型/分辨率/画面比例/时长/关键词)",
+    "3. 人物(表格: 名称/身份标签/提示词-纯画面描述)",
+    "4. 场景(表格: 名称/类型标签/描述提示词)",
+    "5. 产品(表格: 名称/品类标签/描述提示词)",
+    "6. 主剧情(两三句)",
+    "7. 【单集结构·分镜】用两列表格写满: | 时间 | 画面与对白 | ，按 3-4 秒一段切分(如 第0至3秒/第3至6秒/第6至9秒/第9至12秒)，每段写清 地点时机+具体肢体动作+对白(人物台词：“xxx”)+镜头提示(括号内) ，不能笼统概括",
+    "8. 剧情细节与执行要点",
+    "要求: 一集一个完整故事; 分镜要像分镜脚本一样具体(每个动作有起止, 产品出现绑定具体动作); 对白短句口语化; 人物/场景/产品贴合视频实际内容; 质量对齐 15 秒带货短剧标准。",
+  ].join("\n");
+  try {
+    const scriptText = await chat(apiKey, modelId, [{ role: "user", content: instruction, videos: [videoDataUrl] }]);
+    if (!scriptText.trim()) return JSON.stringify({ ok: false, detail: "未能从视频提取出内容" });
+    const saved = await execAddScript({ content: scriptText, name: String(args.name || ""), file_path: String(args.video_url || "") });
+    return JSON.stringify({ ok: true, detail: "视频已提取为一集剧本并存入剧本库", saved });
+  } catch (e) {
+    return JSON.stringify({ ok: false, detail: `提取失败: ${(e as Error).message}` });
+  }
+}
+
 export async function POST(req: NextRequest): Promise<Response> {
   let b: Body = {};
   try { b = (await req.json()) as Body; } catch { /* ignore */ }
@@ -181,11 +278,14 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   // ---------- 附件: 图片 -> data URL; txt/docx -> 文本注入当前消息(附带 data 路径) ----------
   const images: string[] = [];
+  const videos: string[] = []; // 视频附件(供模型读视频)
   let attachText = "";
   const attachFiles: { name: string; path: string }[] = []; // txt/docx 附件(供 add_script 兜底 file_path)
   for (const u of (b.images || []).slice(0, 9)) {
     const img = localImageToDataUrl(u);
     if (img) { images.push(img); continue; }
+    const vid = localVideoToDataUrl(u);
+    if (vid) { videos.push(vid); continue; }
     const at = await attachTextOf(u);
     if (at) {
       const dataPath = `data${u.slice(4)}`; // /api/uploads/... -> data/uploads/...
@@ -194,16 +294,19 @@ export async function POST(req: NextRequest): Promise<Response> {
     }
   }
 
-  // ---------- 上下文 ----------
-  const history: ChatMsg[] = (b.messages || [])
-    .slice(-20)
-    .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim() && !m.content.startsWith("(调用失败)") && !m.content.startsWith("(加载失败)"))
-    .map((m) => ({
-      role: m.role,
-      content: m.content,
-      images: (m.images || []).map(localImageToDataUrl).filter((x): x is string => !!x),
-    }));
-  history.push({ role: "user", content: attachText ? `${message}\n${attachText}` : message, images });
+  // ---------- 上下文(每次会话注入系统上下文) ----------
+  const history: ChatMsg[] = [
+    { role: "system", content: SYSTEM_PROMPT },
+    ...(b.messages || [])
+      .slice(-20)
+      .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim() && !m.content.startsWith("(调用失败)") && !m.content.startsWith("(加载失败)"))
+      .map((m) => ({
+        role: m.role,
+        content: m.content,
+        images: (m.images || []).map(localImageToDataUrl).filter((x): x is string => !!x),
+      })),
+  ];
+  history.push({ role: "user", content: attachText ? `${message}\n${attachText}` : message, images, videos });
 
   const apiKey = process.env.DOUBAO_API_KEY || "";
   if (!apiKey) return Response.json({ detail: "未配置 DOUBAO_API_KEY(见项目根 .env)" }, { status: 400 });
@@ -213,11 +316,27 @@ export async function POST(req: NextRequest): Promise<Response> {
   try {
     let scriptsChanged = false;
     const reply = await chat(apiKey, modelId, history, {
-      tools: [ADD_SCRIPT_TOOL, READ_FILE_TOOL, ...LIB_TOOLS],
+      tools: [ADD_SCRIPT_TOOL, READ_FILE_TOOL, TRANSFORM_TOOL, VIDEO_TO_SCRIPT_TOOL, CREATE_VIDEO_TOOL, ...LIB_TOOLS],
       onToolCall: async (name, args) => {
+        // 播放/展示: 新工具
+        if (name === "transform_script") {
+          const r = await execAddScript(args); // 复用入库+解析
+          const parsed = JSON.parse(r) as { ok?: boolean };
+          if (parsed.ok) scriptsChanged = true;
+          return r;
+        }
+        if (name === "video_to_script") {
+          const r = await execVideoToScript(apiKey, modelId, args);
+          const parsed = JSON.parse(r) as { ok?: boolean };
+          if (parsed.ok) scriptsChanged = true;
+          return r;
+        }
+        if (name === "create_video") {
+          return await execCreateVideo(args);
+        }
         const lib = LIB_META[name];
         if (lib) {
-          const r = await execLibAdd(lib.table, args);
+          const r = await execLibAdd(lib.table as LibraryTable, args);
           const parsed = JSON.parse(r) as { ok?: boolean };
           if (parsed.ok) scriptsChanged = true;
           return r;

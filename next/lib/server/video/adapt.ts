@@ -8,6 +8,13 @@ export interface ScriptMaterial {
   prompt: string;
 }
 
+/** 物料指纹: 按名称排序的 name|prompt 序列——三库内容(勾选/提示词)变化则指纹变化 */
+export function materialsFp(characters: ScriptMaterial[], scenes: ScriptMaterial[], products: ScriptMaterial[]): string {
+  const norm = (list: ScriptMaterial[]): string[] =>
+    [...list].sort((a, b) => a.name.localeCompare(b.name)).map((x) => `${x.name}|${x.prompt}`);
+  return JSON.stringify({ c: norm(characters), s: norm(scenes), p: norm(products) });
+}
+
 export interface AdaptInput {
   content: string;
   characters: ScriptMaterial[];
@@ -64,6 +71,7 @@ export async function adaptPrompt(input: AdaptInput): Promise<{ prompt: string; 
     "2. 配置比剧情多的 人物/场景/产品 → 自然地补进剧情(一笔带过, 不喧宾夺主)。",
     "3. 严禁引入配置之外的新 人物/场景/产品。",
     "4. 输出面向视频生成模型的完整画面描述(人物外貌动作、场景光线氛围、镜头), 中文, 包含视频配置。",
+    "5. 对白台词以「人物台词：xxx」直接写入提示词(视频模型会输出语音与口型); 旁白用「旁白：xxx」。台词短句(≤14字), 配合动作描写。",
   ].join("\n");
 
   const result: { value: Record<string, unknown> | null } = { value: null };

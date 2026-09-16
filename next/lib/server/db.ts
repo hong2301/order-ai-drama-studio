@@ -2,6 +2,7 @@
 // 数据路径: dev = 项目根 data/(next.config 注入 DRAMA_DATA_DIR); 正式版 = exe 同级 data/(Electron 注入)
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
 import type { Database, SqlJsStatic } from "sql.js";
 
 // 静态 require("sql.js"): serverExternalPackages 外部化为 Node 原生 require (webpack 不截获)
@@ -55,6 +56,16 @@ export function queryAll(db: Database, sql: string, params: unknown[] = []): Rec
 }
 export function queryOne(db: Database, sql: string, params: unknown[] = []): Record<string, unknown> | undefined {
   return queryAll(db, sql, params)[0];
+}
+
+/** 名称归一化: 去空白/标点, 全角→半角, 小写 — “实质同名”判定(防止细微字符差异产生重复记录) */
+export function normName(name: string): string {
+  return String(name || "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[\s\u3000]+/g, "")
+    .replace(/[·・.。,\-_—–~!！?？:：;；'"`“”‘’()（）【】\[\]<>《》\/\\|]/g, "")
+    .trim();
 }
 
 /** 每次写操作后同步落盘(数据量小, 全量导出成本可忽略) */
@@ -122,6 +133,7 @@ function initSchema(db: Database): void {
       ["duration", "TEXT DEFAULT ''"],
       ["ratio", "TEXT DEFAULT ''"],
       ["keywords", "TEXT DEFAULT '[]'"],
+      ["materials_fp", "TEXT DEFAULT ''"],
     ] as [string, string][]) {
       if (cols && !cols.includes(col)) db.run(`ALTER TABLE scripts ADD COLUMN ${col} ${def}`);
     }
@@ -147,6 +159,8 @@ function initSchema(db: Database): void {
       identity   TEXT DEFAULT '[]',
       prompt     TEXT DEFAULT '',
       image_ids  TEXT DEFAULT '[]',
+      content_key TEXT DEFAULT '',
+      name_key   TEXT DEFAULT '',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -161,10 +175,28 @@ function initSchema(db: Database): void {
         identity   TEXT DEFAULT '[]',
         prompt     TEXT DEFAULT '',
         image_ids  TEXT DEFAULT '[]',
+        content_key TEXT DEFAULT '',
+        name_key   TEXT DEFAULT '',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
     `);
+  }
+
+  // 三库迁移: 补 content_key/name_key 列 + 老数据回填(幂等)
+  for (const t of ["characters", "scenes", "products"]) {
+    try {
+      const cols = db.exec(`PRAGMA table_info(${t})`)[0]?.values.map((r) => r[1]);
+      if (cols && !cols.includes("content_key")) db.run(`ALTER TABLE ${t} ADD COLUMN content_key TEXT DEFAULT ''`);
+      if (cols && !cols.includes("name_key")) db.run(`ALTER TABLE ${t} ADD COLUMN name_key TEXT DEFAULT ''`);
+      const rows = db.exec(`SELECT id, name, prompt FROM ${t} WHERE content_key='' OR name_key=''`)[0]?.values || [];
+      for (const r of rows) {
+        const name = String(r[1] || "");
+        const key = crypto.createHash("sha1").update(`${name}\u0000${String(r[2] || "")}`).digest("hex").slice(0, 20);
+        db.run(`UPDATE ${t} SET content_key=?, name_key=? WHERE id=?`, [key, normName(name), r[0]]);
+      }
+      if (rows.length) void persist();
+    } catch { /* ignore */ }
   }
 }
 

@@ -28,6 +28,8 @@ export interface VideoModelDef {
     ratios?: string[];
     /** 是否支持自定义时长(秒); false/缺省 = 模型固定时长 */
     duration?: boolean;
+    /** 时长上限(秒); 超出直接报错, 不静默降级 */
+    durationMax?: number;
   };
   /** 每秒费用(元/秒, 估算; 以方舟计费页为准)。时长可设, 总费用 ≈ 秒数 × 每秒价 */
   pricePerSecond?: number;
@@ -74,7 +76,11 @@ export interface VideoTask {
   provider: string;
   modelKey: string;
   model: string;
+  scriptName?: string;   // 关联剧本名(视频库展示)
   prompt: string;
+  resolution?: string;
+  ratio?: string;
+  duration?: string;
   imageUrl?: string | null;
   status: VideoTaskStatus;
   videoUrl?: string | null;

@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { App as AntApp, Button, ConfigProvider, DatePicker, Empty, Form, Input, Modal, Popconfirm, Table, Tabs, Tooltip, Upload } from "antd";
-import { DeleteOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
+import { DeleteOutlined, PlusOutlined, SearchOutlined, VideoCameraOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import zhCN from "antd/locale/zh_CN";
 import type { UploadFile } from "antd/es/upload/interface";
+import VideoLibraryModal from "./VideoLibraryModal";
 
 interface Script {
   id: number;
@@ -50,6 +51,7 @@ export default function ScriptModule() {
   const [loadingMore, setLoadingMore] = useState(false); // 滚动加载中
   const [selected, setSelected] = useState<number[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
+  const [videoLibOpen, setVideoLibOpen] = useState(false); // 视频库弹窗
   const [saving, setSaving] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; id: number } | null>(null); // 行右键菜单
   const [editPrompt, setEditPrompt] = useState<{ open: boolean; id: number; value: string }>({ open: false, id: 0, value: "" }); // 提示词弹窗编辑
@@ -414,6 +416,10 @@ export default function ScriptModule() {
             批量删除{selected.length > 0 ? ` (${selected.length})` : ""}
           </Button>
         </Popconfirm>
+        {/* 视频库(在删除按钮右边, size 一致) */}
+        <Button icon={<VideoCameraOutlined />} onClick={() => setVideoLibOpen(true)} title="视频库" style={{ height: 40, display: "inline-flex", alignItems: "center" }}>
+          视频库
+        </Button>
         <div style={{ flex: 1 }} />
         <Button
           type="primary"
@@ -450,6 +456,9 @@ export default function ScriptModule() {
           </div>
         </>
       )}
+
+      {/* 视频库弹窗 */}
+      <VideoLibraryModal open={videoLibOpen} onClose={() => setVideoLibOpen(false)} />
 
       {/* 提示词弹窗编辑(点击提示词列打开) */}
       <Modal open={editPrompt.open} title="编辑提示词" onCancel={() => setEditPrompt((p) => ({ ...p, open: false }))} footer={null} width={560} destroyOnHidden>

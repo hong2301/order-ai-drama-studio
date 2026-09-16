@@ -1,6 +1,7 @@
 // scenes: GET /api/scenes 列表(名称筛选/分页) | POST 新增
 import type { NextRequest } from "next/server";
-import { getDb, queryAll, queryOne, persist } from "@/lib/server/db";
+import { getDb, queryAll, queryOne } from "@/lib/server/db";
+import { upsertLibraryRecord } from "@/lib/server/library";
 
 type Body = { name?: string; identity?: string[]; prompt?: string; image_ids?: number[] };
 
@@ -47,13 +48,11 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
   const name = (b.name || "").trim();
   if (!name) return Response.json({ detail: "名称不能为空" }, { status: 400 });
-  const now = new Date().toISOString();
-  const db = await getDb();
-  db.run(
-    "INSERT INTO scenes(name, identity, prompt, image_ids, created_at, updated_at) VALUES(?,?,?,?,?,?)",
-    [name, JSON.stringify(b.identity || []), (b.prompt || "").trim(), JSON.stringify(b.image_ids || []), now, now],
-  );
-  const id = Number(db.exec("SELECT last_insert_rowid()")[0]?.values[0]?.[0] ?? 0);
-  await persist();
-  return Response.json({ ok: true, id });
+  const r = await upsertLibraryRecord("scenes", {
+    name,
+    identity: b.identity,
+    prompt: b.prompt,
+    image_ids: b.image_ids,
+  });
+  return Response.json({ ok: true, id: r.id, merged: r.merged });
 }

@@ -4,7 +4,7 @@
 // 若配置与固定提示词有出入 → 用适配后的提示词生成; 适配失败/无出入 → 原提示词。
 import type { NextRequest } from "next/server";
 import { getDb, queryAll, queryOne } from "@/lib/server/db";
-import { adaptPrompt } from "@/lib/server/video/adapt";
+import { adaptPrompt, materialsFp } from "@/lib/server/video/adapt";
 import { createVideoTask, ensureVideoTables } from "@/lib/server/video";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +26,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   let b: {
     modelKey?: string; prompt?: string; scriptId?: number | null;
     imageUrl?: string | null; resolution?: string; ratio?: string; duration?: number;
+    scriptName?: string;
   } = {};
   try { b = (await req.json()) as typeof b; } catch { /* ignore */ }
 
@@ -43,8 +44,12 @@ export async function POST(req: NextRequest): Promise<Response> {
         const scenes = materialsOf(db, "scenes", parseIds(String(row.scene_ids || "")));
         const prods = materialsOf(db, "products", parseIds(String(row.product_ids || "")));
         const config = [b.resolution, b.ratio, b.duration ? `${b.duration}秒` : ""].filter(Boolean).join(" · ");
-        const adapted = await adaptPrompt({ content: String(row.content || ""), characters: chars, scenes: scenes, products: prods, config });
-        if (adapted && adapted.prompt) prompt = adapted.prompt;
+        // 物料指纹一致(三库未修改过) → 剧情与配置本就对齐, 跳过一致性检测
+        if (materialsFp(chars, scenes, prods) !== String(row.materials_fp || "")) {
+          const adapted = await adaptPrompt({ content: String(row.content || ""), characters: chars, scenes: scenes, products: prods, config });
+          if (adapted && adapted.prompt) prompt = adapted.prompt;
+        }
+        b.scriptName = String(row.name || "");
       }
     }
 
@@ -55,6 +60,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       resolution: b.resolution || undefined,
       ratio: b.ratio || undefined,
       duration: b.duration && b.duration > 0 ? b.duration : undefined,
+      scriptName: b.scriptName || undefined,
     });
     return Response.json({ ok: true, task });
   } catch (e) {

@@ -6,6 +6,7 @@ import ChatModule from "./components/ChatModule";
 import ScriptModule from "./components/ScriptModule";
 import ConsoleModule from "./components/ConsoleModule";
 import InfoCardModule from "./components/InfoCardModule";
+import KeySettings from "./components/KeySettings";
 
 export default function Home() {
   return (
@@ -21,12 +22,14 @@ export default function Home() {
         <img src="/icon.svg" alt="logo" style={{ width: 30, height: 30, borderRadius: 6 }} />
         <span style={{ fontWeight: 700, fontSize: 16, letterSpacing: 0.5 }}>AI视频工坊</span>
         <div style={{ flex: 1 }} />
+        {/* 刷新按钮, API Key 设置在其右边 */}
         <Button
           shape="default"
           icon={<ReloadOutlined />}
           onClick={() => window.location.reload()}
           title="刷新页面"
         />
+        <KeySettings />
       </header>
 
       {/* body: 模块从左到右排列, 自动填充剩余高度(无 tail) */}

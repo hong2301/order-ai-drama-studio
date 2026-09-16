@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { App as AntApp, Button, InputNumber, Segmented, Select, Space } from "antd";
 import { PlayCircleOutlined } from "@ant-design/icons";
 
@@ -9,6 +9,7 @@ interface VideoModelDef {
   key: string; provider: string; model: string; name: string;
   status: "active" | "retiring" | "inactive"; note?: string;
   pricePerSecond?: number;
+  presets?: { resolutions?: string[]; ratios?: string[]; duration?: boolean; durationMax?: number };
 }
 
 const MODEL_STATUS_TXT: Record<string, string> = { active: "可用", retiring: "即将下线", inactive: "未开通" };
@@ -25,6 +26,8 @@ export default function ConsoleModule() {
   const [prompt, setPrompt] = useState<string>(""); // 来自剧本联动(选中剧本自动带入)
 
   const [generating, setGenerating] = useState(false);
+  // 后台轮询: 提交后的任务生成完/失败时提示
+  const pollRef = useRef<Record<string, ReturnType<typeof setInterval>>>({});
   // 反向联动: 当前联动剧本 id + 写回防抖
   const activeScriptRef = useRef<number | null>(null);
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -86,6 +89,32 @@ export default function ConsoleModule() {
 
   const curModel = models.find((m) => m.key === modelKey);
 
+  /** 后台轮询任务直到终态: 成功/失败给消息, 成功触发视频库刷新 */
+  const watchTask = useCallback((id: string): void => {
+    if (pollRef.current[id]) return;
+    pollRef.current[id] = setInterval(async () => {
+      try {
+        const r = await fetch(`/api/video/tasks/${id}`);
+        const j = (await r.json()) as { ok?: boolean; task?: { status?: string; error?: string | null } };
+        if (!j.ok || !j.task) throw new Error("任务不存在");
+        const st = j.task.status;
+        if (st === "succeeded") {
+          const iv = pollRef.current[id];
+          if (iv) { clearInterval(iv); delete pollRef.current[id]; }
+          message.success("视频生成完成，已存入视频库");
+          window.dispatchEvent(new Event("videos-changed"));
+        } else if (st === "failed" || st === "cancelled") {
+          const iv = pollRef.current[id];
+          if (iv) { clearInterval(iv); delete pollRef.current[id]; }
+          message.warning(`视频生成${st === "cancelled" ? "已取消" : "失败"}${j.task.error ? `：${j.task.error}` : ""}`);
+        }
+      } catch {
+        const iv = pollRef.current[id];
+        if (iv) { clearInterval(iv); delete pollRef.current[id]; }
+      }
+    }, 5000);
+  }, [message]);
+
   const start = async (): Promise<void> => {
     const mk = modelKey || models[0]?.key;
     if (!mk) { message.error("未选择模型"); return; }
@@ -107,6 +136,7 @@ export default function ConsoleModule() {
       const j = (await r.json()) as { ok?: boolean; detail?: string; task?: { id?: string; status?: string } };
       if (!r.ok || !j.ok) throw new Error(j.detail || `HTTP ${r.status}`);
       message.success(`已提交生成任务，约 1-3 分钟完成`);
+      watchTask(j.task?.id || ""); // 进后台轮询, 完成后给提示
     } catch (e) {
       message.error((e as Error).message);
     } finally {
@@ -143,8 +173,21 @@ export default function ConsoleModule() {
         <div style={rowWrap}>
           <span style={labelStyle}>时长</span>
           <Space.Compact size="small">
-            <InputNumber min={1} max={30} value={duration} onChange={(v) => { setDuration(Number(v) || 1); syncToScript({ duration: Number(v) || 1 }); }} style={{ width: 96 }} />
-            <div style={{ padding: "0 10px", background: "#f5f5f5", borderLeft: "1px solid #eee", display: "flex", alignItems: "center", fontSize: 12, color: "#666" }}>秒</div>
+            <InputNumber
+              min={1}
+              max={curModel?.presets?.durationMax || 12}
+              value={duration}
+              onChange={(v) => {
+                const max = curModel?.presets?.durationMax || 12;
+                const n = Math.min(max, Math.max(1, Number(v) || 1));
+                setDuration(n);
+                syncToScript({ duration: n });
+              }}
+              style={{ width: 96 }}
+            />
+            <div style={{ padding: "0 10px", background: "#f5f5f5", borderLeft: "1px solid #eee", display: "flex", alignItems: "center", fontSize: 12, color: "#666" }}>
+              秒 ≤{curModel?.presets?.durationMax || 12}
+            </div>
           </Space.Compact>
         </div>
       </div>
