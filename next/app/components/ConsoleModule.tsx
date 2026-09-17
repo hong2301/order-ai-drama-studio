@@ -52,19 +52,20 @@ export default function ConsoleModule() {
     }, 400);
   };
 
-  // 加载视频模型(仅显示可用的; 未开通/已下线的不展示)
-  useEffect(() => {
-    fetch("/api/video/models")
+  // 加载视频模型(自动探测开通状态; 未开通/已下线不展示, 仅显示真实可用的)
+  const loadModels = useCallback((fresh = false): void => {
+    fetch(`/api/video/models${fresh ? "?fresh=1" : ""}`)
       .then((r) => r.json())
       .then((j) => {
         if (!j.ok) throw new Error(j.detail);
-        const list = (j.models as VideoModelDef[]).filter((m) => m.status !== "inactive");
+        const list = (j.models as VideoModelDef[]).filter((m) => m.status === "active");
         setModels(list);
-        const first = list.find((m) => m.status === "active") || list[0];
-        if (first) setModelKey(first.key);
+        setModelKey((prev) => (prev && list.some((m) => m.key === prev) ? prev : list[0]?.key || ""));
       })
       .catch((e) => message.error(`加载模型失败: ${(e as Error).message}`));
   }, [message]);
+
+  useEffect(() => { loadModels(false); }, [loadModels]);
 
   // 剧本联动: 选中剧本时同步 分辨率/比例/时长 + 提示词(剧本内容)
   useEffect(() => {
@@ -207,9 +208,20 @@ export default function ConsoleModule() {
           placeholder="选择视频模型"
           style={{ width: 240 }}
           popupMatchSelectWidth={330}
+          popupRender={(menu) => (
+            <>
+              {menu}
+              <div
+                style={{ borderTop: "1px solid #f0f0f0", padding: "5px 10px", fontSize: 12, color: "#666", cursor: "pointer" }}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => { void loadModels(true); }}
+              >
+                🔄 重新检测视频模型
+              </div>
+            </>
+          )}
           options={(models || []).map((m) => ({
             value: m.key,
-            disabled: m.status === "retiring",
             label: (
               <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</span>

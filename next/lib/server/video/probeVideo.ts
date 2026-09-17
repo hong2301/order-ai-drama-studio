@@ -37,7 +37,7 @@ async function probeOne(def: VideoModelDef): Promise<VideoProbeItem["status"]> {
   try {
     const resp = await fetch(`${ARK_API}/contents/generations/tasks`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${apiKey()}`, "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${await apiKey()}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: def.model,
         content: [{ type: "text", text: "t" }], // 最小内容; duration=999 必被接口拦截, 不会真生成
@@ -49,6 +49,7 @@ async function probeOne(def: VideoModelDef): Promise<VideoProbeItem["status"]> {
     if (resp.ok) return "active"; // 竟然接受? 说明能收(实际不会走到)
     let code = "";
     try { code = (JSON.parse(text).error?.code as string) || ""; } catch { /* ignore */ }
+    console.log(`[probe-video] ${def.name} -> code=${code} status=${resp.status} msg=${JSON.parse(text).error?.message || ""}`.slice(0, 160));
     if (code === "ModelNotOpen") return "inactive";
     if (code === "InvalidParameter") return "active"; // 参数校验都走到 → 模型可用
     return "unknown";
