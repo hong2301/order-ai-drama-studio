@@ -52,7 +52,7 @@ export const MODELS: VideoModelDef[] = [
     modes: ["text", "image"] as VideoInputMode[],
     status: "active",
     note: "免费档 · 支持人物台词/旁白(口型一般)；促销4折约 0.2 元/秒(720P)",
-    presets: { resolutions: ["480P", "720P", "1080P"], ratios: ["9:16", "16:9", "1:1"], duration: true, durationMax: 12 },
+    presets: { resolutions: ["480P", "720P", "1080P"], ratios: ["9:16", "16:9", "1:1"], duration: true, durationMax: 15 },
     pricePerSecond: 0.2,
   },
   {
@@ -63,7 +63,7 @@ export const MODELS: VideoModelDef[] = [
     modes: ["text", "image"] as VideoInputMode[],
     status: "active",
     note: "免费档 · 支持人物台词/旁白；促销75折约 0.6 元/秒(720P)",
-    presets: { resolutions: ["480P", "720P", "1080P"], ratios: ["9:16", "16:9", "1:1"], duration: true, durationMax: 12 },
+    presets: { resolutions: ["480P", "720P", "1080P"], ratios: ["9:16", "16:9", "1:1"], duration: true, durationMax: 15 },
     pricePerSecond: 0.6,
   },
 

@@ -128,9 +128,8 @@ if (fs.existsSync(wasmSrc)) {
   fs.copyFileSync(wasmSrc, wasmDst)
   console.log('copy sql-wasm.wasm -> next-server/node_modules/sql.js/dist/')
 }
-if (fs.existsSync(path.join(ROOT, '.env'))) {
-  fs.copyFileSync(path.join(ROOT, '.env'), path.join(RELEASE, '.env'))
-  console.log('copy .env -> release')
-}
+// Key 已存数据库(界面设置), 打包不再复制 .env —— 避免把密钥打进分发产物; 清掉历史残留
+const envRelease = path.join(RELEASE, '.env')
+if (fs.existsSync(envRelease)) fs.rmSync(envRelease, { force: true })
 fs.mkdirSync(path.join(RELEASE, 'data'), { recursive: true })
 console.log('\n✅ 离线打包完成:', path.join(RELEASE, 'AI视频工坊.exe'))

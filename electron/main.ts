@@ -40,7 +40,7 @@ function log(msg: string): void {
   } catch { /* ignore */ }
 }
 
-// ---------- 加载 exe 同级 .env(打包脚本复制根 .env 到 release/) ----------
+// 可选加载 exe 同级 .env(兼容旧版; 目前已不需要 —— API Key 存于数据库, 界面可设)
 function loadEnvFile(envPath: string): void {
   try {
     if (!fs.existsSync(envPath)) return;
@@ -123,7 +123,7 @@ app.whenReady().then(async () => {
     try { app.dock.setIcon(path.join(__dirname, "..", "icon.png")); } catch { /* ignore */ }
   }
   if (!isDev) {
-    // 生产: 读 .env(build 复制; win=exe同级, mac=Resources) + 启动 next server + 等就绪
+    // 生产: 若存在 .env 则加载(兼容)(Key 已存数据库, 通常无此文件) + 启动 next server + 等就绪
     const envDir = process.platform === "darwin" ? process.resourcesPath : path.dirname(app.getPath("exe"));
     loadEnvFile(path.join(envDir, ".env"));
     startNextServer();

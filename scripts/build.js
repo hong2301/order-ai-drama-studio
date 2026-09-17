@@ -128,10 +128,9 @@ if (fs.existsSync(wasmSrc)) {
   fs.copyFileSync(wasmSrc, wasmDst)
   console.log('copy sql-wasm.wasm -> next-server/node_modules/sql.js/dist/')
 }
-// 复制根 .env(exe 同级, Electron 启动时加载)
-if (fs.existsSync(path.join(ROOT, '.env'))) {
-  ccp(ROOT, '.env', RELEASE)
-}
+// Key 已存数据库(界面设置), 打包不再复制 .env(避免密钥打进分发产物); 清掉历史残留
+const envRelease = path.join(RELEASE, '.env')
+if (fs.existsSync(envRelease)) fs.rmSync(envRelease, { force: true })
 const outName = plat === 'darwin' ? `${PACK_NAME}.app` : plat === 'win32' ? `${PACK_NAME}.exe` : PACK_NAME
 console.log('\n✅ 打包完成:', path.join(RELEASE, outName))
 
