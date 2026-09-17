@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { App as AntApp, Button, Dropdown, Input, Modal, Spin } from "antd";
 import { FileOutlined, FilePdfOutlined, FileTextOutlined, FileWordOutlined, LoadingOutlined, PaperClipOutlined, SendOutlined, UnorderedListOutlined } from "@ant-design/icons";
 
@@ -94,6 +94,7 @@ export default function ChatModule() {
   const [chatModel, setChatModel] = useState<string | null>(null); // null = 用服务端默认模型
   const [modelOpen, setModelOpen] = useState(false); // 模型下拉面板开关
   const [loadingModels, setLoadingModels] = useState(false); // 模型加载中
+  const videoPollRef = useRef<Record<string, ReturnType<typeof setInterval>>>({}); // AI 发起视频任务的轮询
   const listRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
@@ -138,19 +139,22 @@ export default function ChatModule() {
     })();
   }, []);
 
-  // 加载已适配的多模态对话模型(默认选中 .env 配置的模型)
-  useEffect(() => {
+  // 加载已适配的多模态对话模型(自动探测已开通; fresh=1 重新检测)
+  const loadArkModels = useCallback((fresh = false): void => {
     setLoadingModels(true);
-    fetch("/api/models")
+    fetch(`/api/models${fresh ? "?fresh=1" : ""}`)
       .then((r) => r.json())
       .then((j) => {
         if (!j.ok) throw new Error(j.detail);
         setArkModels((j.models || []) as ArkModel[]);
-        if (j.default && (j.models || []).some((m: ArkModel) => m.id === j.default)) setChatModel(j.default as string);
+        // 重新检测后切回服务端默认模型(或保持现有选择若仍在列表)
+        if (fresh && j.default && (j.models || []).some((m: ArkModel) => m.id === j.default)) setChatModel(j.default as string);
       })
       .catch((e) => message.error(`加载模型失败: ${(e as Error).message}`))
       .finally(() => setLoadingModels(false));
   }, [message]);
+
+  useEffect(() => { loadArkModels(false); }, [loadArkModels]);
 
   // 当前选中模型的展示名
   const curChatModel = arkModels.find((m) => m.id === chatModel) || null;
@@ -282,6 +286,32 @@ export default function ChatModule() {
     if (fileRef.current) fileRef.current.value = "";
   };
 
+  /** AI 工具发起的视频任务: 后台轮询直到终态(完成 → 提示 + 刷新视频库) */
+  const watchVideoTask = (id: string): void => {
+    if (videoPollRef.current[id]) return;
+    videoPollRef.current[id] = setInterval(async () => {
+      try {
+        const r = await fetch(`/api/video/tasks/${id}`);
+        const j = (await r.json()) as { ok?: boolean; task?: { status?: string; error?: string | null } };
+        if (!j.ok || !j.task) throw new Error("任务不存在");
+        const st = j.task.status;
+        if (st === "succeeded") {
+          const iv = videoPollRef.current[id];
+          if (iv) { clearInterval(iv); delete videoPollRef.current[id]; }
+          message.success("视频生成完成，已存入视频库");
+          window.dispatchEvent(new Event("videos-changed"));
+        } else if (st === "failed" || st === "cancelled") {
+          const iv = videoPollRef.current[id];
+          if (iv) { clearInterval(iv); delete videoPollRef.current[id]; }
+          message.warning(`视频生成${st === "cancelled" ? "已取消" : "失败"}${j.task.error ? `：${j.task.error}` : ""}`);
+        }
+      } catch {
+        const iv = videoPollRef.current[id];
+        if (iv) { clearInterval(iv); delete videoPollRef.current[id]; }
+      }
+    }, 5000);
+  };
+
   const send = async () => {
     const text = input.trim();
     if (!text || sending) return;
@@ -296,11 +326,16 @@ export default function ChatModule() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: text, images, messages, ...(chatModel ? { model: chatModel } : {}) }),
       });
-      const j = (await r.json()) as { detail?: string; reply?: string; scriptsChanged?: boolean };
+      const j = (await r.json()) as { detail?: string; reply?: string; scriptsChanged?: boolean; videoTaskIds?: string[] };
       if (!r.ok) throw new Error(j.detail || `HTTP ${r.status}`);
       setMessages((m) => [...m, { role: "assistant", content: j.reply || "" }]);
       // AI 通过工具新增了剧本 → 通知剧本模块刷新
       if (j.scriptsChanged) window.dispatchEvent(new CustomEvent("scripts-changed"));
+      // AI 通过工具发起的视频生成 → 进入后台轮询, 完成后提示 + 视频库刷新
+      if (j.videoTaskIds?.length) {
+        message.loading("视频生成中，完成后自动存入视频库…", 2);
+        for (const tid of j.videoTaskIds) watchVideoTask(tid);
+      }
     } catch (e) {
       message.error((e as Error).message);
       setMessages((m) => [...m, { role: "assistant", content: `(调用失败) ${(e as Error).message}` }]);
@@ -530,6 +565,13 @@ export default function ChatModule() {
                         </div>
                       ))
                     )}
+                  </div>
+                  {/* 手动重新检测(强制重探方舟已开通模型) */}
+                  <div
+                    style={{ borderTop: "1px solid #f0f0f0", padding: "6px 10px", fontSize: 12, color: "#666", cursor: "pointer" }}
+                    onClick={() => { void loadArkModels(true); }}
+                  >
+                    🔄 重新检测对话模型
                   </div>
                 </div>
               )}

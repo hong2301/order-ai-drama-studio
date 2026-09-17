@@ -6,7 +6,7 @@ import path from "path";
 import mammoth from "mammoth";
 import { chat, DoubaoError, type ChatMsg, type ToolDef } from "@/lib/server/doubao";
 import { dataDir, getDb, persist, getApiKey } from "@/lib/server/db";
-import { SYSTEM_PROMPT } from "@/lib/server/chatSystem";
+import { SYSTEM_PROMPT, SCRIPT_SKILL, needScriptSkill } from "@/lib/server/chatSystem";
 import { DATA_TOOLS, execDataTool, DATA_TOOL_WRITES, registerChatImages } from "@/lib/server/chatDataTools";
 import { createVideoTask, ensureVideoTables } from "@/lib/server/video";
 import { upsertLibraryRecord, type LibraryTable } from "@/lib/server/library";
@@ -84,13 +84,14 @@ async function execAddScript(args: Record<string, unknown>): Promise<string> {
     );
     const id = Number(db.exec("SELECT last_insert_rowid()")[0]?.values[0]?.[0] ?? 0);
     await persist();
-    // AI 添加后同样自动解析(识别人物/场景/产品/清晰度/时长/关键词; 失败不影响)
-    let parse = null;
-    try {
-      const { parseScript } = await import("@/lib/server/scriptParse");
-      parse = await parseScript(id);
-    } catch { /* ignore */ }
-    return JSON.stringify({ ok: true, id, name, parse });
+    // 解析改为**后台异步**(不阻塞本次回复): 解析要再调一次 AI(几十秒), 同步等会把整个请求拖到超时/被中断
+    void (async () => {
+      try {
+        const { parseScript } = await import("@/lib/server/scriptParse");
+        await parseScript(id);
+      } catch { /* 解析失败不影响入库 */ }
+    })();
+    return JSON.stringify({ ok: true, id, name, detail: "已保存到剧本库(人物/场景/产品解析在后台进行)" });
   } catch (e) {
     return JSON.stringify({ ok: false, detail: (e as Error).message });
   }
@@ -98,7 +99,7 @@ async function execAddScript(args: Record<string, unknown>): Promise<string> {
 
 const ADD_SCRIPT_TOOL: ToolDef = {
   name: "add_script",
-  description: "将剧本内容/提示词保存到剧本库。**仅在用户明确要求「加入剧本库/保存剧本/记录到剧本库」时调用**；只读文件内容、回答关于文件的问题时绝不要调用(用 read_file)。内容来自附件文件时须带 file_path。",
+  description: "将剧本内容/提示词保存到剧本库(**需传完整 content**)。用户给了一段新内容要求保存时才用; 如果是保存**你上一条回复里刚输出的剧本**, 用 save_last_script 更快。**仅在用户明确要求「加入剧本库/保存剧本/记录到剧本库」时调用**; 只读文件内容、回答关于文件的问题时绝不要调用(用 read_file)。内容来自附件文件时须带 file_path。",
   parameters: {
     type: "object",
     properties: {
@@ -158,6 +159,42 @@ function buildLibTool(name: string): ToolDef {
 
 const LIB_TOOLS: ToolDef[] = Object.keys(LIB_META).map((n) => buildLibTool(n));
 
+const SAVE_LAST_TOOL: ToolDef = {
+  name: "save_last_script",
+  description: "把**你上一条回复里刚输出的剧本**保存进剧本库——**不需要传 content**(系统自动取你上一条回复), 比 add_script 快得多。用户说「保存/加入剧本库/存起来/记录一下」而你刚刚输出过完整剧本时, 优先用这个。若用户给的是新内容、或你上一条不是完整剧本, 才用 add_script。",
+  parameters: {
+    type: "object",
+    properties: { name: { type: "string", description: "剧本名称(可选, 不传则取内容首行)" } },
+  },
+};
+
+/** 保存「上一条回复中的剧本」(轻量: 不用模型重写全文, 避免请求超时) */
+async function execSaveLastScript(args: Record<string, unknown>, lastAssistant: string): Promise<string> {
+  const content = (lastAssistant || "").trim();
+  if (!content) return JSON.stringify({ ok: false, detail: "取不到上一条回复内容, 请改用 add_script 并传入 content" });
+  return execAddScript({ content, name: args.name });
+}
+
+// ---------- 工具按需装载: 系统提示词已给"工具索引", 完整定义仅在用户表达明确意图时携带, 日常对话零工具(响应最快) ----------
+/** 按用户最新消息意图装载工具组(读附件在"有文本附件"时自动带上) */
+function pickToolsByIntent(msg: string, hasTextAttach: boolean): ToolDef[] {
+  const byDataName = (names: string[]): ToolDef[] => DATA_TOOLS.filter((t) => names.includes(t.name));
+  // 剧本组: 写/存/查/改/删/提取剧本
+  const groupScript: ToolDef[] = [SAVE_LAST_TOOL, TRANSFORM_TOOL, ADD_SCRIPT_TOOL, VIDEO_TO_SCRIPT_TOOL, ...byDataName(["query_script", "update_script", "delete_script"])];
+  // 资料库组: 人物/场景/产品 增查改删(场景产品无身份标签)
+  const groupLib: ToolDef[] = [...LIB_TOOLS, ...byDataName(["query_library", "update_library", "delete_library"])];
+  // 视频组: 直接生成 + 模型可用性探测
+  const groupVideo: ToolDef[] = [CREATE_VIDEO_TOOL, ...byDataName(["query_video_models"])];
+
+  const tools: ToolDef[] = [];
+  const m = msg || "";
+  if (/剧本|分镜|写一集|写一段|成剧本|提取剧本|保存到剧本库|加入剧本库|删.*剧本|改.*剧本|查.*剧本|哪些剧本|几集/.test(m)) tools.push(...groupScript);
+  if (/人物库|场景库|产品库|资料库|加入.*库|存到.*库|保存.*(人物|场景|产品)|删.*(人物|场景|产品)|改.*(人物|场景|产品)|查.*(人物库|场景库|产品库)/.test(m)) tools.push(...groupLib);
+  if (/生成视频|做一条|做一段|做条|开始生成|视频生成|视频模型|哪个模型|开通|拍个|制作视频|生成一条/.test(m)) tools.push(...groupVideo);
+  if (hasTextAttach) tools.push(READ_FILE_TOOL);
+  return tools;
+}
+
 /** 写入资料库表(去重合并: 同名同提示词/同名 → 合并身份) */
 async function execLibAdd(table: LibraryTable, args: Record<string, unknown>, imageIds: number[] = []): Promise<string> {
   const name = String(args.name ?? "").trim();
@@ -204,7 +241,7 @@ const TRANSFORM_TOOL: ToolDef = {
 
 const VIDEO_TO_SCRIPT_TOOL: ToolDef = {
   name: "video_to_script",
-  description: "用户上传了视频并明确要求「提取为剧本/转成剧本/根据视频写剧本」时调用: 观看视频内容, 提取成符合规范的单集剧本并保存进剧本库。注意: 只有用户明确说要把视频转成剧本时才调用。",
+  description: "用户上传了视频并明确要求「提取为剧本/转成剧本/根据视频写剧本」时调用: 观看视频内容, 先生成【画面提示词】+ 单集剧本初稿(按剧本规范), **只输出初稿不保存数据库**; 等用户确认后, 再按用户要求用 add_script 保存入库。注意: 只有用户明确说要把视频转成剧本时才调用。",
   parameters: {
     type: "object",
     properties: {
@@ -256,27 +293,29 @@ async function execCreateVideo(args: Record<string, unknown>): Promise<string> {
   }
 }
 
-/** 视频 → 单集剧本(观看后入库 + 解析) */
+/** 视频 → 画面提示词 + 单集剧本初稿(不保存; 用户确认后再由 add_script 入库) */
 async function execVideoToScript(apiKey: string, modelId: string, args: Record<string, unknown>): Promise<string> {
   const videoDataUrl = localVideoToDataUrl(String(args.video_url || ""));
   if (!videoDataUrl) return JSON.stringify({ ok: false, detail: "视频不存在或格式不支持(mp4/webm/mov, ≤30MB)" });
   const instruction = [
-    "请观看这段视频, 提取其中的剧情内容, 输出一集短视频剧本(Markdown), 结构固定为:",
-    "1. 标题(系列名+集数+点题)",
-    "2. 视频配置(表格: 生成模型/分辨率/画面比例/时长/关键词)",
-    "3. 人物(表格: 名称/身份标签/提示词-纯画面描述)",
-    "4. 场景(表格: 名称/类型标签/描述提示词)",
-    "5. 产品(表格: 名称/品类标签/描述提示词)",
-    "6. 主剧情(两三句)",
-    "7. 【单集结构·分镜】用两列表格写满: | 时间 | 画面与对白 | ，按 3-4 秒一段切分(如 第0至3秒/第3至6秒/第6至9秒/第9至12秒)，每段写清 地点时机+具体肢体动作+对白(人物台词：“xxx”)+镜头提示(括号内) ，不能笼统概括",
-    "8. 剧情细节与执行要点",
-    "要求: 一集一个完整故事; 分镜要像分镜脚本一样具体(每个动作有起止, 产品出现绑定具体动作); 对白短句口语化; 人物/场景/产品贴合视频实际内容; 质量对齐 15 秒带货短剧标准。",
+    "请观看这段视频, 提取其中的剧情内容, 按下面顺序输出(不要省略):",
+    "1. 【画面提示词】一段可直接用于视频模型生成的画面描述(人物/场景/镜头/光线/动作, 200字内)",
+    "2. 一集完整剧本(Markdown), 结构固定为:",
+    "   - 标题(系列名+集数+点题)",
+    "   - 视频配置(表格: 生成模型/分辨率/画面比例/时长/关键词, 分辨率默认480P)",
+    "   - 人物(表格: 名称/身份标签/提示词-纯画面描述)",
+    "   - 场景(表格: 名称/描述提示词)",
+    "   - 产品(表格: 名称/描述提示词)",
+    "   - 主剧情(两三句)",
+    "   - 【单集结构·分镜】两列表格写满: | 时间 | 画面与对白 | , 按3-4秒一段切分, 每段写清 地点+肢体动作+对白(人物台词:”xxx“)+镜头提示(括号内)",
+    "   - 剧情细节与执行要点",
+    "要求: 人物/场景/产品贴合视频实际内容; 分镜具体到每个动作的起止; 对白口语短句。",
+    "**只输出提示词与剧本初稿, 绝对不要保存到任何数据库** —— 用户确认后再说保存的事。",
   ].join("\n");
   try {
     const scriptText = await chat(apiKey, modelId, [{ role: "user", content: instruction, videos: [videoDataUrl] }]);
     if (!scriptText.trim()) return JSON.stringify({ ok: false, detail: "未能从视频提取出内容" });
-    const saved = await execAddScript({ content: scriptText, name: String(args.name || ""), file_path: String(args.video_url || "") });
-    return JSON.stringify({ ok: true, detail: "视频已提取为一集剧本并存入剧本库", saved });
+    return JSON.stringify({ ok: true, draft: scriptText, detail: "已生成画面提示词与剧本初稿(未保存); 用户确认后可用 add_script 保存入库" });
   } catch (e) {
     return JSON.stringify({ ok: false, detail: `提取失败: ${(e as Error).message}` });
   }
@@ -293,12 +332,13 @@ export async function POST(req: NextRequest): Promise<Response> {
   const chatImageUrls: string[] = []; // 本轮图片附件原始地址(供 AI 写库时自动转图库关联)
   const videos: string[] = []; // 视频附件(供模型读视频)
   let attachText = "";
+  const mediaHints: string[] = []; // 图片/视频附件路径提示(供 AI 引用: video_to_script/create_video 的 url 参数)
   const attachFiles: { name: string; path: string }[] = []; // txt/docx 附件(供 add_script 兜底 file_path)
   for (const u of (b.images || []).slice(0, 9)) {
     const img = localImageToDataUrl(u);
-    if (img) { images.push(img); chatImageUrls.push(u); continue; }
+    if (img) { images.push(img); chatImageUrls.push(u); mediaHints.push(`图片 ${u}`); continue; }
     const vid = localVideoToDataUrl(u);
-    if (vid) { videos.push(vid); continue; }
+    if (vid) { videos.push(vid); mediaHints.push(`视频 ${u}`); continue; }
     const at = await attachTextOf(u);
     if (at) {
       const dataPath = `data${u.slice(4)}`; // /api/uploads/... -> data/uploads/...
@@ -306,10 +346,12 @@ export async function POST(req: NextRequest): Promise<Response> {
       attachText += `\n\n[附件文件 ${dataPath} 内容]\n${at.text}\n[/附件]`;
     }
   }
+  const mediaHint = mediaHints.length ? `\n\n[对话附件路径] ${mediaHints.join("；")} —— 需要时用这些地址作为工具参数(url)` : "";
 
-  // ---------- 上下文(每次会话注入系统上下文) ----------
+  // ---------- 上下文(每次会话注入系统上下文; 剧本创作时按需拼接详细规范) ----------
+  const system = needScriptSkill(message) ? `${SYSTEM_PROMPT}\n\n${SCRIPT_SKILL}` : SYSTEM_PROMPT;
   const history: ChatMsg[] = [
-    { role: "system", content: SYSTEM_PROMPT },
+    { role: "system", content: system },
     ...(b.messages || [])
       .slice(-20)
       .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim() && !m.content.startsWith("(调用失败)") && !m.content.startsWith("(加载失败)"))
@@ -319,7 +361,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         images: (m.images || []).map(localImageToDataUrl).filter((x): x is string => !!x),
       })),
   ];
-  history.push({ role: "user", content: attachText ? `${message}\n${attachText}` : message, images, videos });
+  history.push({ role: "user", content: `${message}${attachText}${mediaHint}`, images, videos });
 
   const apiKey = await getApiKey();
   if (!apiKey) return Response.json({ detail: "未配置 API Key(请点右上角 API Key 按钮设置)" }, { status: 400 });
@@ -328,8 +370,15 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   try {
     let scriptsChanged = false;
+    const videoTaskIds: string[] = []; // AI 本轮发起的视频任务(前端轮询完成状态)
+    // 上一条助手回复(保存"刚输出的剧本"时用, 免去模型重写全文)
+    const lastAssistant = [...(b.messages || [])].reverse()
+      .find((m) => m && m.role === "assistant" && typeof m.content === "string" && m.content.trim())?.content || "";
+    // 按意图装载工具(日常对话不带工具, 最快)
+    const msgForIntent = message + (attachText ? "\n[附件]" : "");
+    const tools = pickToolsByIntent(msgForIntent, attachFiles.length > 0);
     const reply = await chat(apiKey, modelId, history, {
-      tools: [TRANSFORM_TOOL, READ_FILE_TOOL, CREATE_VIDEO_TOOL, ADD_SCRIPT_TOOL, VIDEO_TO_SCRIPT_TOOL, ...LIB_TOOLS, ...DATA_TOOLS],
+      tools: tools.length ? tools : undefined,
       onToolCall: async (name, args) => {
         // 数据查询/修改/删除(修改删除已含 confirm 确认校验)
         const dataTool = execDataTool(name, args);
@@ -345,19 +394,28 @@ export async function POST(req: NextRequest): Promise<Response> {
           return r;
         }
         if (name === "video_to_script") {
-          const r = await execVideoToScript(apiKey, modelId, args);
-          const parsed = JSON.parse(r) as { ok?: boolean };
-          if (parsed.ok) scriptsChanged = true;
-          return r;
+          // B 方案: 只出初稿不落库(scriptsChanged 由后续 add_script 触发)
+          return await execVideoToScript(apiKey, modelId, args);
         }
         if (name === "create_video") {
-          return await execCreateVideo(args);
+          const r = await execCreateVideo(args);
+          try {
+            const parsed = JSON.parse(r) as { task_id?: string };
+            if (parsed.task_id) videoTaskIds.push(parsed.task_id);
+          } catch { /* ignore */ }
+          return r;
         }
         const lib = LIB_META[name];
         if (lib) {
           // 本轮附件图自动转图库并关联
           const imgIds = await registerChatImages(chatImageUrls);
           const r = await execLibAdd(lib.table as LibraryTable, args, imgIds);
+          const parsed = JSON.parse(r) as { ok?: boolean };
+          if (parsed.ok) scriptsChanged = true;
+          return r;
+        }
+        if (name === "save_last_script") {
+          const r = await execSaveLastScript(args, lastAssistant);
           const parsed = JSON.parse(r) as { ok?: boolean };
           if (parsed.ok) scriptsChanged = true;
           return r;
@@ -378,7 +436,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         return JSON.stringify({ ok: false, detail: `未知工具 ${name}` });
       },
     });
-    return Response.json({ reply, scriptsChanged });
+    return Response.json({ reply, scriptsChanged, videoTaskIds });
   } catch (e) {
     if (e instanceof DoubaoError) return Response.json({ detail: `对话失败: ${e.code}` }, { status: 502 });
     return Response.json({ detail: (e as Error).message }, { status: 500 });
