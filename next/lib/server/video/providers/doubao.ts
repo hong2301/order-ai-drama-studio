@@ -30,8 +30,10 @@ const STATUS_MAP: Record<string, VideoTaskStatus> = {
 };
 
 async function request<T>(pathname: string, init?: RequestInit): Promise<T> {
+  // 60s 硬超时: 防止查询/创建卡死(配上层的"老旧任务安全标记失败"兜底)
   const resp = await fetch(`${ARK_API}${pathname}`, {
     ...init,
+    signal: AbortSignal.timeout(60000),
     headers: { Authorization: `Bearer ${await apiKey()}`, "Content-Type": "application/json", ...(init?.headers || {}) },
   });
   const text = await resp.text();

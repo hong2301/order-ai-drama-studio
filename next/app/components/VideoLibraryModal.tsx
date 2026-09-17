@@ -1,7 +1,7 @@
 "use client";
 
 // 视频库弹窗: 生成完成的视频列表(封面卡片) + 点击播放(大播放器弹窗) + 右键删除
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { App as AntApp, Button, Empty, Modal, Spin } from "antd";
 import { PlayCircleOutlined } from "@ant-design/icons";
 
@@ -35,6 +35,7 @@ export default function VideoLibraryModal(props: { open: boolean; onClose: () =>
   const [hasMore, setHasMore] = useState(true);
   const [menu, setMenu] = useState<{ x: number; y: number; id: string } | null>(null);
   const [player, setPlayer] = useState<VideoTask | null>(null); // 播放器弹窗
+  const tasksRef = useRef<VideoTask[]>([]); // 最新列表(供自动刷新非终态任务用)
 
   const PAGE = 20;
 
@@ -74,6 +75,24 @@ export default function VideoLibraryModal(props: { open: boolean; onClose: () =>
     const onChanged = (): void => void reload();
     window.addEventListener("videos-changed", onChanged);
     return () => window.removeEventListener("videos-changed", onChanged);
+  }, [open, reload]);
+
+  // 记录最新列表(供自动"刷新生成中任务"使用, 避免闭包陈旧)
+  useEffect(() => { tasksRef.current = tasks; }, [tasks]);
+
+  // 打开后 1s: 把仍处于生成中(queued/running)的任务逐个问方舟拉真实状态,
+  // 卡住的失败/超时任务会转终态 → 重拉列表后占位自动消失(安全清理)
+  useEffect(() => {
+    if (!open) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    timer = setTimeout(() => {
+      const pend = tasksRef.current.filter((t) => t.status === "queued" || t.status === "running").slice(0, 6);
+      if (!pend.length) return;
+      void Promise.allSettled(pend.map((t) => fetch(`/api/video/tasks/${t.id}`))).then(() => {
+        void reload();
+      });
+    }, 1000);
+    return () => { if (timer) clearTimeout(timer); };
   }, [open, reload]);
 
   const delOne = async (id: string): Promise<void> => {
@@ -146,12 +165,14 @@ export default function VideoLibraryModal(props: { open: boolean; onClose: () =>
                     </div>
                   </div>
                 ) : (
-                  // 生成中占位: 该位置视频正在生成, 完成后自动变成视频卡
+                  // 生成中占位: 该位置视频正在生成(右键可直接删除; 卡住的任务打开视频库会自动刷新转终态)
                   <div
                     key={t.id}
+                    onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenu({ x: e.clientX, y: e.clientY, id: t.id }); }}
+                    title="生成中… 右键可删除"
                     style={{
                       border: "1px dashed #d9d9d9", borderRadius: 12, overflow: "hidden",
-                      background: "#fafafa", position: "relative",
+                      background: "#fafafa", position: "relative", cursor: "context-menu",
                     }}
                   >
                     <div style={{ position: "relative", aspectRatio: "16/9", background: "#f0f0f0", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>

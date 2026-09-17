@@ -176,6 +176,15 @@ export async function refreshVideoTask(id: string): Promise<VideoTask | null> {
   try {
     fresh = await provider.get(id);
   } catch (e) {
+    // 方舟查询失败/超时: 若任务已挂较久(>20分钟仍非终态) → 安全标记失败, 避免占位永久悬挂
+    const born = Date.parse(local.updatedAt || local.createdAt || "") || Date.now();
+    if (Date.now() - born > 20 * 60 * 1000) {
+      const msg = `查询方舟失败, 任务可能已失效: ${(e as Error).message}`.slice(0, 160);
+      const now = new Date().toISOString();
+      db.run(`UPDATE ${TABLE} SET status=?, error=?, updated_at=? WHERE id=?`, ["failed", msg, now, id]);
+      await persist();
+      return { ...local, status: "failed" as VideoTaskStatus, error: msg, updatedAt: now };
+    }
     return { ...local, error: (e as Error).message };
   }
   // 成功且 video_url 是商家外链 → 下载到本地(方舟 URL 有时效, 视频库须持久保存)
