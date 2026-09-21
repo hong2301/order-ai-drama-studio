@@ -6,7 +6,7 @@ import { dataDir, getDb, persist, queryAll, queryOne } from "@/lib/server/db";
 import type { VideoTask, VideoTaskStatus } from "./types";
 import { getModelDef, getProvider, listModelDefs } from "./registry";
 
-const TABLE = "video_tasks";
+export const TABLE = "video_tasks";
 
 function rowToTask(r: Record<string, unknown>): VideoTask {
   return {
@@ -137,6 +137,30 @@ export async function createVideoTask(input: {
   return task;
 }
 
+/** 立即创建占位任务(生成中占位): 后台适配+提交完成后会用真实方舟任务替换(id 更新) */
+export async function createPlaceholderTask(input: {
+  modelKey: string; prompt: string; resolution?: string; ratio?: string; duration?: number; scriptName?: string;
+}): Promise<VideoTask> {
+  await ensureVideoTables();
+  const db = await getDb();
+  const id = `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const now = new Date().toISOString();
+  db.run(
+    `INSERT INTO ${TABLE}(id,provider,model_key,model,script_name,prompt,image_url,status,error,resolution,ratio,duration,created_at,updated_at)
+     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [id, "doubao", input.modelKey, input.modelKey, input.scriptName || "", input.prompt, "", "queued", "",
+     input.resolution || "", input.ratio || "", input.duration ? String(input.duration) : "", now, now],
+  );
+  await persist();
+  const row = queryOne(db, `SELECT * FROM ${TABLE} WHERE id=?`, [id]);
+  return (row ? rowToTask(row) : {
+    id, provider: "doubao", modelKey: input.modelKey, model: input.modelKey, scriptName: input.scriptName || "",
+    prompt: input.prompt, resolution: input.resolution || "", ratio: input.ratio || "",
+    duration: input.duration ? String(input.duration) : "", imageUrl: null,
+    status: "queued" as const, videoUrl: null, error: null, createdAt: now, updatedAt: now,
+  });
+}
+
 /** 下载商家视频到本地 data/uploads/videos/<id>.mp4, 返回本地 URL(失败留外链) */
 async function downloadVideo(id: string, url: string): Promise<string | null> {
   try {
@@ -176,9 +200,14 @@ export async function refreshVideoTask(id: string): Promise<VideoTask | null> {
   try {
     fresh = await provider.get(id);
   } catch (e) {
-    // 方舟查询失败/超时: 若任务已挂较久(>20分钟仍非终态) → 安全标记失败, 避免占位永久悬挂
+    // 占位任务(local- 前缀: 后台还在适配/提交, 真实方舟 id 未就位)——或刚创建的任务: 原样返回(前端继续"生成中"), 不标错
     const born = Date.parse(local.updatedAt || local.createdAt || "") || Date.now();
-    if (Date.now() - born > 20 * 60 * 1000) {
+    const age = Date.now() - born;
+    if (local.id.startsWith("local-") || age < 60 * 1000) {
+      return { ...local, error: null };
+    }
+    // 方舟查询失败/超时: 任务已挂较久(>20分钟仍非终态) → 安全标记失败, 避免占位永久悬挂
+    if (age > 20 * 60 * 1000) {
       const msg = `查询方舟失败, 任务可能已失效: ${(e as Error).message}`.slice(0, 160);
       const now = new Date().toISOString();
       db.run(`UPDATE ${TABLE} SET status=?, error=?, updated_at=? WHERE id=?`, ["failed", msg, now, id]);

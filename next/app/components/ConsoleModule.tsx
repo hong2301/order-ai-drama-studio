@@ -113,6 +113,8 @@ export default function ConsoleModule() {
       } catch {
         const iv = pollRef.current[id];
         if (iv) { clearInterval(iv); delete pollRef.current[id]; }
+        // 占位已被真实任务替换(id 变更导致查询 404) → 刷新视频库, 让新任务显示
+        window.dispatchEvent(new Event("videos-changed"));
       }
     }, 5000);
   }, [message]);

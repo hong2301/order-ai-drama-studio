@@ -1,11 +1,12 @@
 // 视频生成: POST /api/video/generate
 // body: {modelKey, prompt?, scriptId?, imageUrl?, resolution?, ratio?, duration?}
-// 传 scriptId 时: 读取剧本绑定的 人物/场景/产品(与三库勾选同步), AI 做一致性检查,
-// 若配置与固定提示词有出入 → 用适配后的提示词生成; 适配失败/无出入 → 原提示词。
+// 流程: 立即创建占位任务(视频库立即可见"生成中") → 后台异步做 一致性检查/剧情适配(调AI) → 提交方舟 →
+//       成功用真实任务更新占位(id 替换), 失败标记占位 failed
 import type { NextRequest } from "next/server";
-import { getDb, queryAll, queryOne } from "@/lib/server/db";
+import { getDb, persist, queryAll, queryOne } from "@/lib/server/db";
 import { adaptPrompt, materialsFp } from "@/lib/server/video/adapt";
-import { createVideoTask, ensureVideoTables } from "@/lib/server/video";
+import { createVideoTask, createPlaceholderTask, ensureVideoTables, TABLE } from "@/lib/server/video";
+import type { VideoTask } from "@/lib/server/video/types";
 
 export const dynamic = "force-dynamic";
 
@@ -22,17 +23,18 @@ function materialsOf(db: Awaited<ReturnType<typeof getDb>>, table: "characters" 
   return rows.map((r) => ({ name: String(r.name || ""), prompt: String(r.prompt || "") }));
 }
 
-export async function POST(req: NextRequest): Promise<Response> {
-  let b: {
-    modelKey?: string; prompt?: string; scriptId?: number | null;
-    imageUrl?: string | null; resolution?: string; ratio?: string; duration?: number;
-    scriptName?: string;
-  } = {};
-  try { b = (await req.json()) as typeof b; } catch { /* ignore */ }
+interface GenBody {
+  modelKey?: string; prompt?: string; scriptId?: number | null;
+  imageUrl?: string | null; resolution?: string; ratio?: string; duration?: number;
+  scriptName?: string;
+}
 
+/** 后台: 一致性适配(有绑定剧本时) → 提交方舟 → 用真实任务替换占位; 失败将占位标记 failed */
+async function runGenerate(b: GenBody, placeholderId: string): Promise<void> {
   try {
     await ensureVideoTables();
     let prompt = String(b.prompt || "");
+    let scriptName = b.scriptName || "";
 
     // 一致性检查 + 剧情适配(仅当绑定了剧本时)
     const scriptId = Number(b.scriptId);
@@ -44,12 +46,11 @@ export async function POST(req: NextRequest): Promise<Response> {
         const scenes = materialsOf(db, "scenes", parseIds(String(row.scene_ids || "")));
         const prods = materialsOf(db, "products", parseIds(String(row.product_ids || "")));
         const config = [b.resolution, b.ratio, b.duration ? `${b.duration}秒` : ""].filter(Boolean).join(" · ");
-        // 物料指纹一致(三库未修改过) → 剧情与配置本就对齐, 跳过一致性检测
         if (materialsFp(chars, scenes, prods) !== String(row.materials_fp || "")) {
           const adapted = await adaptPrompt({ content: String(row.content || ""), characters: chars, scenes: scenes, products: prods, config });
           if (adapted && adapted.prompt) prompt = adapted.prompt;
         }
-        b.scriptName = String(row.name || "");
+        scriptName = String(row.name || "");
       }
     }
 
@@ -60,10 +61,50 @@ export async function POST(req: NextRequest): Promise<Response> {
       resolution: b.resolution || undefined,
       ratio: b.ratio || undefined,
       duration: b.duration && b.duration > 0 ? b.duration : undefined,
-      scriptName: b.scriptName || undefined,
+      scriptName,
     });
-    return Response.json({ ok: true, task });
+    // 真实任务已由 createVideoTask 落库(独立行); 删除占位行, 占位即刻被真实任务替代
+    const db = await getDb();
+    db.run(`DELETE FROM ${TABLE} WHERE id=?`, [placeholderId]);
+    await persist();
+  } catch (e) {
+    // 失败: 占位标记 failed(视频库占位消失/显示错误), 不中断
+    try {
+      const db = await getDb();
+      db.run(`UPDATE ${TABLE} SET status=?, error=?, video_url='', updated_at=? WHERE id=?`,
+        ["failed", (e as Error).message.slice(0, 200), new Date().toISOString(), placeholderId]);
+      await persist();
+    } catch { /* ignore */ }
+  }
+}
+
+export async function POST(req: NextRequest): Promise<Response> {
+  let b: GenBody = {};
+  try { b = (await req.json()) as GenBody; } catch { /* ignore */ }
+  const modelKey = String(b.modelKey || "");
+  if (!modelKey) return Response.json({ ok: false, detail: "缺少 modelKey" }, { status: 400 });
+  try {
+    await ensureVideoTables();
+    // 绑定剧本 → 预取剧本名(占位卡片显示用; 毫秒级)
+    let scriptName = b.scriptName || "";
+    const scriptId = Number(b.scriptId);
+    if (Number.isInteger(scriptId) && scriptId > 0) {
+      const row = queryOne(await getDb(), "SELECT name FROM scripts WHERE id=?", [scriptId]);
+      if (row) scriptName = String(row.name || "");
+    }
+    // 立即建占位 → 返回(视频库马上出现"生成中"); 适配/提交放后台
+    const placeholder = await createPlaceholderTask({
+      modelKey, prompt: String(b.prompt || ""),
+      resolution: b.resolution, ratio: b.ratio,
+      duration: b.duration && b.duration > 0 ? b.duration : undefined,
+      scriptName,
+    });
+    void runGenerate({ ...b, scriptName }, placeholder.id);
+    return Response.json({ ok: true, task: placeholder });
   } catch (e) {
     return Response.json({ ok: false, detail: (e as Error).message }, { status: 400 });
   }
 }
+
+// 供类型引用(避免未使用告警)
+export type { VideoTask };
