@@ -29,6 +29,17 @@ interface GenBody {
   scriptName?: string;
 }
 
+/** 生成硬性约束(补在提示词末尾, 不改剧本内容; 让视频模型严格贴剧本人设场景产品) */
+const GENERATION_CONSTRAINTS = [
+  "",
+  "【生成硬性要求】",
+  "1. 严格遵循以上剧本的剧情、分镜顺序、对白与情绪, 不得自行加戏或偏离。",
+  "2. 人物/场景/产品必须按剧本设定画面呈现(外貌/服装/光线/包装), 不得替换、缺失或变样。",
+  "3. 镜头角度正常自然(常规平视机位), 动作有起止、人物不要长期静止站桩。",
+  "4. 对白用「人物台词：xxx」, 配合动作; 画面不出现字幕卡/文字。",
+  "5. 画面比例与时长严格遵守(如9:16·15秒), 情绪克制、生活化、轻冲突温暖反转。",
+].join("\n");
+
 /** 后台: 一致性适配(有绑定剧本时) → 提交方舟 → 用真实任务替换占位; 失败将占位标记 failed */
 async function runGenerate(b: GenBody, placeholderId: string): Promise<void> {
   try {
@@ -56,7 +67,8 @@ async function runGenerate(b: GenBody, placeholderId: string): Promise<void> {
 
     const task = await createVideoTask({
       modelKey: String(b.modelKey || ""),
-      prompt,
+      // 末尾附 生成硬性约束(严格遵守剧本/人物场景产品/角度正常等)
+      prompt: `${prompt}\n${GENERATION_CONSTRAINTS}`.trim(),
       imageUrl: b.imageUrl || null,
       resolution: b.resolution || undefined,
       ratio: b.ratio || undefined,
