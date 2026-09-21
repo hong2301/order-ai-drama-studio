@@ -139,6 +139,8 @@ export default function ConsoleModule() {
       });
       const j = (await r.json()) as { ok?: boolean; detail?: string; task?: { id?: string; status?: string; duration?: string; durationAdjustedFrom?: number } };
       if (!r.ok || !j.ok) throw new Error(j.detail || `HTTP ${r.status}`);
+      // 占位已创建 → 立即刷新 视频库徽标(生成中数量)与视频库占位
+      window.dispatchEvent(new Event("videos-changed"));
       // 时长超出模型接口上限 → 已按接口返回的上限调整, 提示用户
       if (j.task?.durationAdjustedFrom) {
         message.warning(`该模型时长上限 ${j.task.duration || ""} 秒（接口返回），已自动调整（原设 ${j.task.durationAdjustedFrom} 秒）`);

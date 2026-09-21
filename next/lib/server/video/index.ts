@@ -249,6 +249,13 @@ export async function listVideoTasks(limit = 50, offset = 0): Promise<VideoTask[
   return rows.map(rowToTask);
 }
 
+/** 生成中任务数(queued/running, 含占位) —— 视频库徽标用 */
+export async function pendingVideoTaskCount(): Promise<number> {
+  const db = await getDb();
+  const r = queryOne(db, `SELECT COUNT(*) AS n FROM ${TABLE} WHERE status IN ('queued','running')`);
+  return Number(r?.n ?? 0);
+}
+
 /** 删除任务记录 + 本地视频文件 */
 export async function deleteVideoTask(id: string): Promise<boolean> {
   const db = await getDb();

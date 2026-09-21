@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { App as AntApp, Button, ConfigProvider, DatePicker, Empty, Form, Input, Modal, Popconfirm, Table, Tabs, Tooltip, Upload } from "antd";
+import { App as AntApp, Badge, Button, ConfigProvider, DatePicker, Empty, Form, Input, Modal, Popconfirm, Table, Tabs, Tooltip, Upload } from "antd";
 import { DeleteOutlined, PlusOutlined, SearchOutlined, VideoCameraOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import zhCN from "antd/locale/zh_CN";
@@ -56,6 +56,7 @@ export default function ScriptModule() {
   const [selected, setSelected] = useState<number[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [videoLibOpen, setVideoLibOpen] = useState(false); // 视频库弹窗
+  const [pendingVidCount, setPendingVidCount] = useState(0); // 生成中视频数(视频库徽标)
   const [saving, setSaving] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; id: number } | null>(null); // 行右键菜单
   const [editPrompt, setEditPrompt] = useState<{ open: boolean; id: number; value: string }>({ open: false, id: 0, value: "" }); // 提示词弹窗编辑
@@ -86,6 +87,20 @@ export default function ScriptModule() {
   }, []);
 
   useEffect(() => { void load(1, false, "", null); }, [load]);
+
+  // 视频库徽标: 生成中任务数量——占位创建/任务完成都会派发 videos-changed 刷新, 另加 20s 兜底轮询
+  const refreshPendingVidCount = useCallback((): void => {
+    fetch("/api/video/tasks/count")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("count fail"))))
+      .then((j: { ok?: boolean; pending?: number }) => { if (j.ok) setPendingVidCount(Number(j.pending) || 0); })
+      .catch(() => { /* 静默 */ });
+  }, []);
+  useEffect(() => {
+    refreshPendingVidCount();
+    const iv = setInterval(refreshPendingVidCount, 20000);
+    window.addEventListener("videos-changed", refreshPendingVidCount);
+    return () => { clearInterval(iv); window.removeEventListener("videos-changed", refreshPendingVidCount); };
+  }, [refreshPendingVidCount]);
 
   // 其他模块(如 AI 对话通过工具新增剧本)通知后自动刷新
   useEffect(() => {
@@ -440,10 +455,12 @@ export default function ScriptModule() {
             删除{selected.length > 0 ? " (1)" : ""}
           </Button>
         </Popconfirm>
-        {/* 视频库(在删除按钮右边, size 一致) */}
-        <Button icon={<VideoCameraOutlined />} onClick={() => setVideoLibOpen(true)} title="视频库" style={{ height: 40, display: "inline-flex", alignItems: "center" }}>
-          视频库
-        </Button>
+        {/* 视频库(在删除按钮右边, size 一致); 徽标=当前生成中任务数(动态) */}
+        <Badge count={pendingVidCount} size="small" color="#ff4d4f" overflowCount={99} offset={[-6, 2]}>
+          <Button icon={<VideoCameraOutlined />} onClick={() => setVideoLibOpen(true)} title="视频库" style={{ height: 40, display: "inline-flex", alignItems: "center" }}>
+            视频库
+          </Button>
+        </Badge>
         <div style={{ flex: 1 }} />
         <Button
           type="primary"
