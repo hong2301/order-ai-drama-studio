@@ -29,11 +29,11 @@ const STATUS_MAP: Record<string, VideoTaskStatus> = {
   queued: "queued", running: "running", succeeded: "succeeded", failed: "failed", cancelled: "cancelled",
 };
 
-async function request<T>(pathname: string, init?: RequestInit): Promise<T> {
-  // 60s 硬超时: 防止查询/创建卡死(配上层的"老旧任务安全标记失败"兜底)
+async function request<T>(pathname: string, init?: RequestInit, timeoutMs = 60000): Promise<T> {
+  // 提交等时延用 30s(快速失败), 查询用默认 60s; 配合上层的"占位超时兜底"
   const resp = await fetch(`${ARK_API}${pathname}`, {
     ...init,
-    signal: AbortSignal.timeout(60000),
+    signal: AbortSignal.timeout(timeoutMs),
     headers: { Authorization: `Bearer ${await apiKey()}`, "Content-Type": "application/json", ...(init?.headers || {}) },
   });
   const text = await resp.text();
@@ -57,7 +57,8 @@ function imageContentType(model: string): "image_url" | "first_frame" {
 }
 
 async function postTask(body: Record<string, unknown>): Promise<{ id: string; status?: string }> {
-  return request<{ id: string; status?: string }>("/contents/generations/tasks", { method: "POST", body: JSON.stringify(body) });
+  // 提交受理应秒级返回: 30s 未响应即失败(避免"准备中"久等)
+  return request<{ id: string; status?: string }>("/contents/generations/tasks", { method: "POST", body: JSON.stringify(body) }, 30000);
 }
 
 /** 从接口错误里解析时长上限(方舟: "duration ... must be less than or equal to 12") — 上限由接口定, 代码不写死 */
@@ -121,6 +122,10 @@ export const doubaoVideo: VideoProvider = {
     if (!content.length) throw new Error("至少需要提示词或图片");
 
     const body: Record<string, unknown> = { model: req.model, content };
+    // 参考图(文生 t2v 锚定人物/场景/产品形象); 与首帧 imageUrl 互斥
+    if (req.referenceImages?.length) {
+      body.reference = req.referenceImages.map((r) => ({ type: "image_url", image_url: { url: toWireUrl(r.url) } }));
+    }
     if (req.resolution) body.resolution = req.resolution;
     if (req.ratio) body.ratio = req.ratio;
     if (req.duration) body.duration = req.duration; // 数字(方舟要求数值型, 字符串会 InvalidParameter)

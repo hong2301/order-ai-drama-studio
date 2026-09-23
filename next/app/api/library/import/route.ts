@@ -9,6 +9,7 @@ import path from "path";
 import mammoth from "mammoth";
 import { chat, DoubaoError, type ToolDef } from "@/lib/server/doubao";
 import { dataDir, getDb, persist, getApiKey } from "@/lib/server/db";
+import { readImageSize } from "@/lib/server/video";
 import type { Database } from "sql.js";
 
 export const dynamic = "force-dynamic";
@@ -67,7 +68,8 @@ export async function POST(req: NextRequest): Promise<Response> {
     const ext = (f.name.split(".").pop() || "").toLowerCase();
     const buf = Buffer.from(await f.arrayBuffer());
     if (IMG_EXT.includes(ext)) {
-      imgIds.push(await saveImage(db, buf, f.name, "", now));
+      const id = await saveImage(db, buf, f.name, "", now);
+      if (id > 0) imgIds.push(id); // 尺寸不符(过小)已跳过
     } else if (ext === "docx") {
       // 文本
       let text = "";
@@ -83,7 +85,14 @@ export async function POST(req: NextRequest): Promise<Response> {
             const saved = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${iext}`;
             const imgDir = path.join(dataDir(), "uploads", "images");
             fs.mkdirSync(imgDir, { recursive: true });
-            fs.writeFileSync(path.join(imgDir, saved), imageBuf);
+            const savedFile = path.join(imgDir, saved);
+            fs.writeFileSync(savedFile, imageBuf);
+            // 尺寸源头拦截(过小不入库)
+            const size = readImageSize(savedFile);
+            if (size && size.w < 300) {
+              fs.unlinkSync(savedFile);
+              return { src: "" };
+            }
             db.run(
               "INSERT INTO images(path, name, description, created_at, updated_at) VALUES(?,?,?,?,?)",
               [`/api/uploads/images/${saved}`, `${f.name.replace(/\.\w+$/, "")}_图`, "word文档内嵌图片", now, now],

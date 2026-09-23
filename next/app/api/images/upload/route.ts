@@ -5,6 +5,7 @@ import fs from "fs";
 import path from "path";
 import { getDb, persist } from "@/lib/server/db";
 import { dataDir } from "@/lib/server/db";
+import { readImageSize } from "@/lib/server/video";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,15 @@ export async function POST(req: NextRequest): Promise<Response> {
   const savedName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   const dir = path.join(dataDir(), "uploads", "images");
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, savedName), Buffer.from(await file.arrayBuffer()));
+  const savedFile = path.join(dir, savedName);
+  fs.writeFileSync(savedFile, Buffer.from(await file.arrayBuffer()));
+
+  // 尺寸要求: 避免日后作为首帧/图生被方舟拒绝(宽需≥300px)
+  const size = readImageSize(savedFile);
+  if (size && size.w < 300) {
+    fs.unlinkSync(savedFile); // 过小不入库
+    return Response.json({ detail: `图片过小：${size.w}×${size.h}px，宽需 ≥300px，请上传更大图片` }, { status: 400 });
+  }
 
   const name = (form.get("name") as string || file.name.replace(/\.\w+$/, "")).trim();
   const description = (form.get("description") as string || "").trim();

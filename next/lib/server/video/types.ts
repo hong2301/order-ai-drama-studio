@@ -41,6 +41,8 @@ export interface VideoSubmitRequest {
   prompt: string;
   /** 单图输入(图生视频/首帧), 可为 /api/uploads 本地路径或公网 URL(provider 负责转 data URL) */
   imageUrl?: string | null;
+  /** 参考图(文生 t2v 锚定形象: 人物/场景/产品), 与 imageUrl 二选一使用 */
+  referenceImages?: { name?: string; url: string }[];
   /** 尾帧(仅 first_last_frame 模式) */
   lastFrameUrl?: string | null;
   /** 分辨率(需模型 presets.resolutions 支持) */
@@ -85,6 +87,8 @@ export interface VideoTask {
   resolution?: string;
   ratio?: string;
   duration?: string;
+  /** 生成链路阶段(占位期): adapting=整理提示词 / submitting=提交方舟; 真实任务基本为空 */
+  stage?: string;
   /** 原请求时长超出模型接口上限, 已按接口返回的上限下调(前端提示用) */
   durationAdjustedFrom?: number;
   imageUrl?: string | null;

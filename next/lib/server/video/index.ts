@@ -8,6 +8,75 @@ import { getModelDef, getProvider, listModelDefs } from "./registry";
 
 export const TABLE = "video_tasks";
 
+/** 将方舟/接口原始错误翻译为中文友好提示(命中规则加说明, 否则原样) */
+const ERROR_RULES: [RegExp, string][] = [
+  [/SensitiveContentDetected/i, "平台内容审核拦截"],
+  [/Copyright|版权/i, "可能涉及版权内容"],
+  [/ModelNotOpen/i, "该模型未开通，请在火山方舟控制台开通后再试"],
+  [/InvalidAuthentication|AuthenticationError|API key format/i, "API Key 无效或未配置，请点右上角按钮设置正确 Key"],
+  [/RateLimit|TooManyRequests/i, "调用频率过高，请稍后再试"],
+  [/InvalidParameter.*duration/i, "时长参数超出该模型支持范围"],
+  [/InvalidParameter.*resolution/i, "分辨率参数不被该模型支持"],
+  [/InvalidParameter.*ratio/i, "画面比例不被该模型支持"],
+  [/InvalidParameter.*not valid/i, "参数不被该模型支持"],
+  [/ModelNotExist|NotFound/i, "模型/任务不存在或已下线"],
+  [/width to be at least (\d+)px/i, "图片尺寸过小(宽需≥300px), 请更换更大的图片"],
+];
+export function friendlyVideoError(raw: string): string {
+  const s = String(raw || "");
+  // 幂等: 已含中文(已翻译过)的不重复翻译
+  if (/[\u4e00-\u9fff]/.test(s.slice(0, 40))) return s.slice(0, 200);
+  for (const [re, zh] of ERROR_RULES) {
+    if (re.test(s)) {
+      const code = s.split(":")[0].split("$")[0].trim().slice(0, 60);
+      return `${zh}${code ? `（${code}）` : ""}`.slice(0, 120);
+    }
+  }
+  return s.slice(0, 160);
+}
+
+/** 轻量解析本地图片宽高(PNG/JPEG 文件头), 失败返回 null */
+export function readImageSize(file: string): { w: number; h: number } | null {
+  try {
+    const buf = fs.readFileSync(file);
+    if (buf.length < 24) return null;
+    if (buf[0] === 0x89 && buf[1] === 0x50) { // PNG: IHDR 宽高在字节 16/20
+      return { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) };
+    }
+    if (buf[0] === 0xff && buf[1] === 0xd8) { // JPEG: 扫 SOF 段
+      let i = 2;
+      while (i + 9 < buf.length) {
+        if (buf[i] !== 0xff) { i++; continue; }
+        const marker = buf[i + 1];
+        if (marker === 0xd8 || (marker >= 0xd0 && marker <= 0xd7)) { i += 2; continue; }
+        const len = buf.readUInt16BE(i + 2);
+        if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+          return { h: buf.readUInt16BE(i + 5), w: buf.readUInt16BE(i + 7) };
+        }
+        i += 2 + len;
+      }
+    }
+    if (buf.slice(0, 4).toString("latin1") === "RIFF" && buf.slice(8, 12).toString("latin1") === "WEBP") {
+      const chunk = buf.slice(12, 40).toString("latin1");
+      if (chunk.startsWith("VP8 ")) { // lossy: 帧头(3)+start code(3) 后 14bit 宽高
+        const w = buf[26] | ((buf[27] & 0x3f) << 8);
+        const h = buf[28] | ((buf[29] & 0x3f) << 8);
+        return { w, h };
+      }
+      if (chunk.startsWith("VP8L")) { // lossless: 1byte 后 14bit 宽高
+        const b1 = buf[21], b2 = buf[22], b3 = buf[23], b4 = buf[24];
+        return { w: (b1 | ((b2 & 0x3f) << 8)) + 1, h: (((b2 >> 6) | (b3 << 2) | ((b4 & 0x0f) << 10)) >> 0) + 1 };
+      }
+      if (chunk.startsWith("VP8X")) { // extended: 24bit 宽高(各 -1)
+        let w = 0, h = 0;
+        for (let k = 0; k < 3; k++) { w |= buf[24 + k] << (8 * k); h |= buf[27 + k] << (8 * k); }
+        return { w: w + 1, h: h + 1 };
+      }
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
 function rowToTask(r: Record<string, unknown>): VideoTask {
   return {
     id: String(r.id),
@@ -18,8 +87,9 @@ function rowToTask(r: Record<string, unknown>): VideoTask {
     prompt: String(r.prompt || ""),
     imageUrl: r.image_url ? String(r.image_url) : null,
     status: String(r.status) as VideoTaskStatus,
+    stage: r.stage ? String(r.stage) : undefined,
     videoUrl: r.video_url ? String(r.video_url) : null,
-    error: r.error ? String(r.error) : null,
+    error: r.error ? friendlyVideoError(String(r.error)) : null,
     resolution: r.resolution ? String(r.resolution) : "",
     ratio: r.ratio ? String(r.ratio) : "",
     duration: r.duration ? String(r.duration) : "",
@@ -46,6 +116,7 @@ export async function ensureVideoTables(): Promise<void> {
       resolution TEXT DEFAULT '',
       ratio      TEXT DEFAULT '',
       duration   TEXT DEFAULT '',
+      stage      TEXT DEFAULT '',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -56,6 +127,7 @@ export async function ensureVideoTables(): Promise<void> {
     if (cols && !cols.includes("resolution")) db.run(`ALTER TABLE ${TABLE} ADD COLUMN resolution TEXT DEFAULT ''`);
     if (cols && !cols.includes("ratio")) db.run(`ALTER TABLE ${TABLE} ADD COLUMN ratio TEXT DEFAULT ''`);
     if (cols && !cols.includes("duration")) db.run(`ALTER TABLE ${TABLE} ADD COLUMN duration TEXT DEFAULT ''`);
+    if (cols && !cols.includes("stage")) db.run(`ALTER TABLE ${TABLE} ADD COLUMN stage TEXT DEFAULT ''`);
   } catch { /* 已存在 */ }
   await persist();
 }
@@ -68,6 +140,8 @@ export async function createVideoTask(input: {
   modelKey: string;
   prompt: string;
   imageUrl?: string | null;
+  /** 参考图(文生锚定人物/场景/产品形象) */
+  referenceImages?: { name?: string; url: string }[];
   resolution?: string;
   ratio?: string;
   duration?: number;
@@ -101,6 +175,7 @@ export async function createVideoTask(input: {
     model: def.model,
     prompt: input.prompt,
     imageUrl: input.imageUrl || null,
+    referenceImages: input.referenceImages,
     resolution: input.resolution,
     ratio: input.ratio,
     duration,
@@ -146,10 +221,10 @@ export async function createPlaceholderTask(input: {
   const id = `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const now = new Date().toISOString();
   db.run(
-    `INSERT INTO ${TABLE}(id,provider,model_key,model,script_name,prompt,image_url,status,error,resolution,ratio,duration,created_at,updated_at)
-     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO ${TABLE}(id,provider,model_key,model,script_name,prompt,image_url,status,error,resolution,ratio,duration,stage,created_at,updated_at)
+     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [id, "doubao", input.modelKey, input.modelKey, input.scriptName || "", input.prompt, "", "queued", "",
-     input.resolution || "", input.ratio || "", input.duration ? String(input.duration) : "", now, now],
+     input.resolution || "", input.ratio || "", input.duration ? String(input.duration) : "", "adapting", now, now],
   );
   await persist();
   const row = queryOne(db, `SELECT * FROM ${TABLE} WHERE id=?`, [id]);
@@ -203,7 +278,16 @@ export async function refreshVideoTask(id: string): Promise<VideoTask | null> {
     // 占位任务(local- 前缀: 后台还在适配/提交, 真实方舟 id 未就位)——或刚创建的任务: 原样返回(前端继续"生成中"), 不标错
     const born = Date.parse(local.updatedAt || local.createdAt || "") || Date.now();
     const age = Date.now() - born;
-    if (local.id.startsWith("local-") || age < 60 * 1000) {
+    if (local.id.startsWith("local-")) {
+      // 占位: 300s 内视为正常(适配/提交中, 提交可能要排队); 超过 → 标记失败, 避免占位永久悬挂
+      if (age < 300_000) return { ...local, error: null };
+      const msg = "生成提交超时(后台可能中断), 请重试";
+      const now = new Date().toISOString();
+      db.run(`UPDATE ${TABLE} SET status=?, error=?, updated_at=? WHERE id=?`, ["failed", msg, now, id]);
+      await persist();
+      return { ...local, status: "failed" as VideoTaskStatus, error: msg, updatedAt: now };
+    }
+    if (age < 60 * 1000) {
       return { ...local, error: null };
     }
     // 方舟查询失败/超时: 任务已挂较久(>20分钟仍非终态) → 安全标记失败, 避免占位永久悬挂
@@ -212,9 +296,9 @@ export async function refreshVideoTask(id: string): Promise<VideoTask | null> {
       const now = new Date().toISOString();
       db.run(`UPDATE ${TABLE} SET status=?, error=?, updated_at=? WHERE id=?`, ["failed", msg, now, id]);
       await persist();
-      return { ...local, status: "failed" as VideoTaskStatus, error: msg, updatedAt: now };
+      return { ...local, status: "failed" as VideoTaskStatus, error: friendlyVideoError(msg), updatedAt: now };
     }
-    return { ...local, error: (e as Error).message };
+    return { ...local, error: friendlyVideoError((e as Error).message) };
   }
   // 成功且 video_url 是商家外链 → 下载到本地(方舟 URL 有时效, 视频库须持久保存)
   if (fresh.status === "succeeded" && fresh.videoUrl && /^https?:\/\//.test(fresh.videoUrl)) {
@@ -224,14 +308,14 @@ export async function refreshVideoTask(id: string): Promise<VideoTask | null> {
   const now = new Date().toISOString();
   db.run(
     `UPDATE ${TABLE} SET status=?, video_url=?, error=?, updated_at=? WHERE id=?`,
-    [fresh.status, fresh.videoUrl || "", fresh.error || "", now, id],
+    [fresh.status, fresh.videoUrl || "", friendlyVideoError(fresh.error || ""), now, id],
   );
   await persist();
   return {
     ...local,
     status: fresh.status,
     videoUrl: fresh.videoUrl || local.videoUrl,
-    error: fresh.error || local.error,
+    error: friendlyVideoError(fresh.error || "") || local.error,
     updatedAt: now,
   };
 }

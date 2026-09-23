@@ -6,6 +6,7 @@ import path from "path";
 import { getDb, queryAll, queryOne, persist, normName, dataDir } from "@/lib/server/db";
 import { contentKey, type LibraryTable } from "@/lib/server/library";
 import type { ToolDef } from "@/lib/server/doubao";
+import { readImageSize } from "@/lib/server/video";
 import { availableVideoModelsBrief } from "@/lib/server/video/probeVideo";
 
 // ---------- 名称/别名映射 ----------
@@ -383,6 +384,9 @@ export async function registerChatImages(urls: string[]): Promise<number[]> {
       fs.mkdirSync(dstDir, { recursive: true });
       const dst = path.join(dstDir, file);
       if (!fs.existsSync(dst)) fs.copyFileSync(src, dst);
+      // 尺寸源头拦截: 过小图(宽<300px)不转图库(避免日后图生被拒)
+      const size = readImageSize(dst);
+      if (size && size.w < 300) continue;
     } catch { continue; }
     const imgPath = `/api/uploads/images/${file}`;
     const exist = queryOne(db, "SELECT id FROM images WHERE path=?", [imgPath]);
