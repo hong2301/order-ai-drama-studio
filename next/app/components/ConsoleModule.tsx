@@ -92,29 +92,57 @@ export default function ConsoleModule() {
   }, []);
 
   /** 后台轮询任务直到终态: 成功/失败给消息, 成功触发视频库刷新 */
+  /** 停止轮询并退出(终态或心跳中断时) */
+  const stopWatch = (id: string): void => {
+    const iv = pollRef.current[id];
+    if (iv) { clearInterval(iv); delete pollRef.current[id]; }
+  };
+
+  /** 占位已被真实任务替换(id 404): 拉列表找最新真实任务继续盯; 找不到则提示 */
+  const relistAndFollow = (oldId: string): void => {
+    void fetch("/api/video/tasks?limit=8")
+      .then((r) => r.json())
+      .then((j: { tasks?: { id: string; createdAt: string }[] }) => {
+        const newer = (j.tasks || [])
+          .filter((t) => !t.id.startsWith("local-") && t.id !== oldId)
+          .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""))[0];
+        if (newer) watchTask(newer.id); // 无缝续盯(完成/失败仍会提示)
+      })
+      .catch(() => { /* 静默 */ });
+    window.dispatchEvent(new Event("videos-changed"));
+  };
+
+  /** 视频任务心跳: 轮询方舟真实状态; 失败立即顶部提示; 心跳连续中断则停止并提示(不干等) */
   const watchTask = useCallback((id: string): void => {
     if (pollRef.current[id]) return;
+    let fail = 0;
     pollRef.current[id] = setInterval(async () => {
       try {
         const r = await fetch(`/api/video/tasks/${id}`);
         const j = (await r.json()) as { ok?: boolean; task?: { status?: string; error?: string | null } };
-        if (!j.ok || !j.task) throw new Error("任务不存在");
+        if (!r.ok || !r.status) throw Object.assign(new Error("HTTP"), { status: r.status });
+        if (!j.ok || !j.task) throw Object.assign(new Error("任务不存在"), { status: 404 });
+        fail = 0;
         const st = j.task.status;
         if (st === "succeeded") {
-          const iv = pollRef.current[id];
-          if (iv) { clearInterval(iv); delete pollRef.current[id]; }
+          stopWatch(id);
           message.success("视频生成完成，已存入视频库");
           window.dispatchEvent(new Event("videos-changed"));
         } else if (st === "failed" || st === "cancelled") {
-          const iv = pollRef.current[id];
-          if (iv) { clearInterval(iv); delete pollRef.current[id]; }
-          message.warning(`视频生成${st === "cancelled" ? "已取消" : "失败"}${j.task.error ? `：${j.task.error}` : ""}`);
+          stopWatch(id);
+          message.warning(`视频生成${st === "cancelled" ? "已取消" : "失败"}${j.task.error ? `：${j.task.error}` : ""}（可在视频库右键删除该记录）`);
         }
-      } catch {
-        const iv = pollRef.current[id];
-        if (iv) { clearInterval(iv); delete pollRef.current[id]; }
-        // 占位已被真实任务替换(id 变更导致查询 404) → 刷新视频库, 让新任务显示
-        window.dispatchEvent(new Event("videos-changed"));
+      } catch (e) {
+        const status = (e as { status?: number }).status;
+        // 404 = 占位已被真实任务替换 → 续盯新任务
+        if (status === 404) { stopWatch(id); relistAndFollow(id); return; }
+        // 心跳中断: 连续 3 次失败才停止并提示(容忍短暂抖动)
+        fail += 1;
+        if (fail >= 3) {
+          stopWatch(id);
+          message.warning("视频任务状态心跳中断，已停止监听（可打开视频库查看或右键删除）");
+          window.dispatchEvent(new Event("videos-changed"));
+        }
       }
     }, 5000);
   }, [message]);

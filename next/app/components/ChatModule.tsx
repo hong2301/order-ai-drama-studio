@@ -289,11 +289,13 @@ export default function ChatModule() {
   /** AI 工具发起的视频任务: 后台轮询直到终态(完成 → 提示 + 刷新视频库) */
   const watchVideoTask = (id: string): void => {
     if (videoPollRef.current[id]) return;
+    let fail = 0;
     videoPollRef.current[id] = setInterval(async () => {
       try {
         const r = await fetch(`/api/video/tasks/${id}`);
         const j = (await r.json()) as { ok?: boolean; task?: { status?: string; error?: string | null } };
-        if (!j.ok || !j.task) throw new Error("任务不存在");
+        if (!j.ok || !j.task) throw Object.assign(new Error("任务不存在"), { status: 404 });
+        fail = 0;
         const st = j.task.status;
         if (st === "succeeded") {
           const iv = videoPollRef.current[id];
@@ -303,11 +305,17 @@ export default function ChatModule() {
         } else if (st === "failed" || st === "cancelled") {
           const iv = videoPollRef.current[id];
           if (iv) { clearInterval(iv); delete videoPollRef.current[id]; }
-          message.warning(`视频生成${st === "cancelled" ? "已取消" : "失败"}${j.task.error ? `：${j.task.error}` : ""}`);
+          message.warning(`视频生成${st === "cancelled" ? "已取消" : "失败"}${j.task.error ? `：${j.task.error}` : ""}（可在视频库右键删除该记录）`);
         }
       } catch {
-        const iv = videoPollRef.current[id];
-        if (iv) { clearInterval(iv); delete videoPollRef.current[id]; }
+        // 心跳中断: 连续 3 次失败才停止并提示(容忍短暂抖动)
+        fail += 1;
+        if (fail >= 3) {
+          const iv = videoPollRef.current[id];
+          if (iv) { clearInterval(iv); delete videoPollRef.current[id]; }
+          message.warning("视频任务状态心跳中断，已停止监听（可打开视频库查看或右键删除）");
+          window.dispatchEvent(new Event("videos-changed"));
+        }
       }
     }, 5000);
   };

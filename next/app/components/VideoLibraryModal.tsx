@@ -2,7 +2,7 @@
 
 // 视频库弹窗: 生成完成的视频列表(封面卡片) + 点击播放(大播放器弹窗) + 右键删除
 import { useCallback, useEffect, useRef, useState } from "react";
-import { App as AntApp, Button, Empty, Modal, Spin } from "antd";
+import { App as AntApp, Button, Empty, Modal, Spin, Tooltip } from "antd";
 import { PlayCircleOutlined } from "@ant-design/icons";
 
 interface VideoTask {
@@ -13,6 +13,7 @@ interface VideoTask {
   scriptName?: string;
   prompt: string;
   status: string;
+  stage?: string;
   videoUrl?: string | null;
   error?: string | null;
   createdAt: string;
@@ -35,6 +36,7 @@ export default function VideoLibraryModal(props: { open: boolean; onClose: () =>
   const [hasMore, setHasMore] = useState(true);
   const [menu, setMenu] = useState<{ x: number; y: number; id: string } | null>(null);
   const [player, setPlayer] = useState<VideoTask | null>(null); // 播放器弹窗
+  const [tick, setTick] = useState(0); // 秒级刷新(占位卡片显示已耗时)
   const tasksRef = useRef<VideoTask[]>([]); // 最新列表(供自动刷新非终态任务用)
 
   const PAGE = 20;
@@ -45,21 +47,25 @@ export default function VideoLibraryModal(props: { open: boolean; onClose: () =>
       const r = await fetch(`/api/video/tasks?limit=${PAGE}&offset=${offset}`);
       const j = (await r.json()) as { ok?: boolean; tasks?: VideoTask[]; detail?: string };
       if (!j.ok) throw new Error(j.detail);
-      const done = (j.tasks || []).filter((t) => t.status !== "failed" && t.status !== "cancelled");
-      setHasMore(done.length >= PAGE);
-      setTasks((prev) => (append ? [...prev, ...done] : done));
+      // 保留全部任务(含 failed/cancelled, 视频库要显示失败与原因); hasMore 按全部算
+      const all = j.tasks || [];
+      setHasMore(all.length >= PAGE);
+      setTasks((prev) => (append ? [...prev, ...all] : all));
     } catch (e) {
       message.warning(`加载视频库失败: ${(e as Error).message}`);
     }
   }, [message]);
 
-  // 首屏/刷新: 从第一页重新拉
+  // 首屏/手动刷新: 从第一页重新拉(带 loading 转圈)
   const reload = useCallback(async (): Promise<void> => {
     setLoading(true);
     setHasMore(true);
     await fetchPage(0, false);
     setLoading(false);
   }, [fetchPage]);
+
+  // 静默刷新: 不置 loading、不闪烁, 仅更新数据(轮询用)
+  const silentReload = useCallback((): void => { void fetchPage(0, false); }, [fetchPage]);
 
   // 滚动到底部附近 → 加载下一页
   const loadMore = useCallback(async (): Promise<void> => {
@@ -69,13 +75,25 @@ export default function VideoLibraryModal(props: { open: boolean; onClose: () =>
     setLoadingMore(false);
   }, [loadingMore, hasMore, loading, tasks.length, fetchPage]);
 
+  // 秒级 tick: 占位卡片“已耗时/阶段”随时间刷新
+  useEffect(() => {
+    if (!open) return;
+    const iv = setInterval(() => setTick((t) => t + 1), 5000);
+    return () => clearInterval(iv);
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     void reload();
-    const onChanged = (): void => void reload();
+    const onChanged = (): void => void silentReload();
     window.addEventListener("videos-changed", onChanged);
-    return () => window.removeEventListener("videos-changed", onChanged);
-  }, [open, reload]);
+    // 本地接口轮询兜底: 每 5s 静默刷新一次(无 loading 闪烁), 失败/完成卡片实时到位
+    const iv = setInterval(silentReload, 5000);
+    return () => {
+      window.removeEventListener("videos-changed", onChanged);
+      clearInterval(iv);
+    };
+  }, [open, reload, silentReload]);
 
   // 记录最新列表(供自动"刷新生成中任务"使用, 避免闭包陈旧)
   useEffect(() => { tasksRef.current = tasks; }, [tasks]);
@@ -127,6 +145,7 @@ export default function VideoLibraryModal(props: { open: boolean; onClose: () =>
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 14 }}>              {tasks.map((t) => {
                 const done = t.status === "succeeded" && t.videoUrl;
+                const failed = t.status === "failed" || t.status === "cancelled";
                 return done ? (
                   <div
                     key={t.id}
@@ -164,6 +183,31 @@ export default function VideoLibraryModal(props: { open: boolean; onClose: () =>
                       <div style={{ fontSize: 11, color: "#aaa", marginTop: 3 }}>创建于 {fmtDate(t.createdAt)}</div>
                     </div>
                   </div>
+                ) : failed ? (
+                  // 失败/取消卡片: 显示原因, hover 看完整详情
+                  <Tooltip key={t.id} title={`${t.status === "cancelled" ? "已取消" : "生成失败"}：${t.error || "无详情"}`} placement="top">
+                    <div
+                      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenu({ x: e.clientX, y: e.clientY, id: t.id }); }}
+                      title="右键可删除"
+                      style={{
+                        border: "1px solid #f0c0c0", borderRadius: 12, overflow: "hidden",
+                        background: "#fff7f7", position: "relative", cursor: "default",
+                      }}
+                    >
+                      <div style={{ aspectRatio: "16/9", background: "#f8e8e8", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                        <span style={{ fontSize: 13, color: "#d4380d" }}>⚠️</span>
+                        <span style={{ fontSize: 13, color: "#d4380d", fontWeight: 600 }}>{t.status === "cancelled" ? "已取消" : "生成失败"}</span>
+                      </div>
+                      <div style={{ padding: "9px 11px" }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "#555", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {t.scriptName || "未命名剧本"}
+                        </div>
+                        <div style={{ fontSize: 11, color: "#d4380d", marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {(t.error || "无详情").slice(0, 40)}
+                        </div>
+                      </div>
+                    </div>
+                  </Tooltip>
                 ) : (
                   // 生成中占位: 该位置视频正在生成(右键可直接删除; 卡住的任务打开视频库会自动刷新转终态)
                   <div
@@ -176,8 +220,27 @@ export default function VideoLibraryModal(props: { open: boolean; onClose: () =>
                     }}
                   >
                     <div style={{ position: "relative", aspectRatio: "16/9", background: "#f0f0f0", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                      {/* 左上角: 生成计时(完成/失败后卡片消失, 不显示) */}
+                      <div style={{ position: "absolute", top: 6, left: 6, background: "rgba(0,0,0,0.5)", color: "#fff", fontSize: 11, lineHeight: "15px", padding: "0 7px", borderRadius: 10, fontVariantNumeric: "tabular-nums" }}>
+                        {(() => {
+                          const sec = Math.max(0, Math.floor((Date.now() - Date.parse(t.createdAt)) / 1000));
+                          return `${String(Math.floor(sec / 60)).padStart(2, "0")}:${String(sec % 60).padStart(2, "0")}`;
+                        })()}
+                      </div>
                       <Spin />
-                      <span style={{ fontSize: 12, color: "#999" }}>生成中…</span>
+                      <span style={{ fontSize: 12, color: "#666" }}>
+                        {(() => {
+                          const preparing = String(t.id).startsWith("local-");
+                          if (preparing) {
+                            return t.stage === "adapting"
+                              ? "第1步 · 整理提示词(AI)…"
+                              : t.stage === "submitting"
+                                ? "第2步 · 提交生成任务…"
+                                : "准备中…";
+                          }
+                          return t.status === "running" ? "正在生成…" : "已提交，排队生成中…";
+                        })()}
+                      </span>
                     </div>
                     <div style={{ padding: "9px 11px" }}>
                       <div style={{ fontSize: 13, fontWeight: 600, color: "#666", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>

@@ -65,7 +65,6 @@ export default function InfoCardModule(props: {
   const importFilesRef = useRef<HTMLInputElement | null>(null);   // 选择多个文件
   const importFolderRef = useRef<HTMLInputElement | null>(null);  // 选择文件夹(webkitdirectory)
   const [pasteContent, setPasteContent] = useState("");
-  const [newIdTag, setNewIdTag] = useState(""); // 手动添加的身份标签输入
   const [editPrompt, setEditPrompt] = useState<{ open: boolean; id: number; value: string }>({ open: false, id: 0, value: "" }); // 提示词弹窗编辑
   const activeScriptRef = useRef<number | null>(null); // 当前联动剧本 id(反向写回用)
   const [idAdding, setIdAdding] = useState<number | null>(null); // 正在新增身份的记录 id
@@ -198,15 +197,6 @@ export default function InfoCardModule(props: {
   }, [api, load]);
 
   // 新增保存(手动填写)
-  // 手动添加身份标签(追加到 Form 的 identity 数组)
-  const addIdTag = (): void => {
-    const t = newIdTag.trim();
-    if (!t) return;
-    const cur = (form.getFieldValue("identity") as string[] | undefined) || [];
-    if (!cur.includes(t)) form.setFieldsValue({ identity: [...cur, t] });
-    setNewIdTag("");
-  };
-
   // 保存该记录的 identity 数组
   const saveIdentity = async (id: number, next: string[]): Promise<void> => {
     try {
@@ -611,7 +601,7 @@ export default function InfoCardModule(props: {
       />
 
       {/* 新增弹窗: 手动填写 / 粘贴提示词 / 上传文件或文件夹 */}
-      <Modal open={modalOpen} title={`新增${title}`} onCancel={() => { setModalOpen(false); setPickedImgs([]); setPasteContent(""); setNewIdTag(""); }} footer={null} width={460} destroyOnHidden>
+      <Modal open={modalOpen} title={`新增${title}`} onCancel={() => { setModalOpen(false); setPickedImgs([]); setPasteContent(""); }} footer={null} width={460} destroyOnHidden>
         <Tabs
           size="small"
           items={[
@@ -627,18 +617,6 @@ export default function InfoCardModule(props: {
                     {showIdentity && (
                       <Form.Item name="identity" label={identityLabel}>
                         <Select mode="tags" placeholder={identityPlaceholder} open={false} suffixIcon={null} style={{ width: "100%" }} tokenSeparators={[",", "，"]} />
-                        {/* 底部显式添加入口 */}
-                        <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
-                          <Input
-                            size="small"
-                            value={newIdTag}
-                            onChange={(e) => setNewIdTag(e.target.value)}
-                            onPressEnter={() => addIdTag()}
-                            placeholder={`输入${identityLabel}后点「添加」`}
-                            style={{ flex: 1 }}
-                          />
-                          <Button size="small" onClick={addIdTag}>添加</Button>
-                        </div>
                       </Form.Item>
                     )}
                     <Form.Item name="prompt" label="提示词">
@@ -646,16 +624,29 @@ export default function InfoCardModule(props: {
                     </Form.Item>
                     <Form.Item label="图片（可多选）">
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                        {library.map((img) => (
-                          <div
-                            key={img.id}
-                            onClick={() => setPickedImgs((prev) => (prev.includes(img.id) ? prev.filter((x) => x !== img.id) : [...prev, img.id]))}
-                            title={img.name || img.description}
-                            style={{ position: "relative", width: 48, height: 48, borderRadius: 8, overflow: "hidden", border: pickedImgs.includes(img.id) ? "2px solid #000" : "1px solid #eee", cursor: "pointer", flexShrink: 0 }}
-                          >
-                            <img src={img.path} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-                          </div>
-                        ))}
+                        {library.map((img) => {
+                          const picked = pickedImgs.includes(img.id);
+                          return (
+                            <div
+                              key={img.id}
+                              onClick={() => setPickedImgs((prev) => (prev.includes(img.id) ? prev.filter((x) => x !== img.id) : [...prev, img.id]))}
+                              title={img.name || img.description}
+                              style={{ position: "relative", width: 48, height: 48, borderRadius: 8, overflow: "hidden", border: picked ? "2px solid #000" : "1px solid #eee", cursor: "pointer", flexShrink: 0 }}
+                            >
+                              <img src={img.path} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                              {/* 已选图片右上角: 圆形删除(取消选择) */}
+                              {picked && (
+                                <div
+                                  onClick={(e) => { e.stopPropagation(); setPickedImgs((prev) => prev.filter((x) => x !== img.id)); }}
+                                  title="取消选择"
+                                  style={{ position: "absolute", top: 2, right: 2, width: 16, height: 16, borderRadius: "50%", background: "rgba(0,0,0,0.55)", color: "#fff", fontSize: 10, lineHeight: "16px", textAlign: "center", cursor: "pointer" }}
+                                >
+                                  ✕
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                         <div onClick={() => fileRef.current?.click()} style={{ width: 48, height: 48, borderRadius: 8, border: "1px dashed #ccc", display: "flex", alignItems: "center", justifyContent: "center", color: "#999", fontSize: 22, cursor: "pointer" }}>
                           +
                         </div>
