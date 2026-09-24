@@ -622,32 +622,32 @@ export default function InfoCardModule(props: {
                     <Form.Item name="prompt" label="提示词">
                       <Input.TextArea placeholder="该对象的提示词/描述（可选）" autoSize={{ minRows: 3, maxRows: 6 }} style={{ fontSize: 13 }} />
                     </Form.Item>
-                    <Form.Item label="图片（可多选）">
+                    <Form.Item label="图片（上传添加，可点 ✕ 立即删除）">
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                        {library.map((img) => {
-                          const picked = pickedImgs.includes(img.id);
+                        {/* 只展示本次已选/已添加的图片(不是图库全集) */}
+                        {pickedImgs.map((pid) => {
+                          const img = library.find((x) => x.id === pid);
+                          if (!img) return null;
                           return (
                             <div
                               key={img.id}
-                              onClick={() => setPickedImgs((prev) => (prev.includes(img.id) ? prev.filter((x) => x !== img.id) : [...prev, img.id]))}
                               title={img.name || img.description}
-                              style={{ position: "relative", width: 48, height: 48, borderRadius: 8, overflow: "hidden", border: picked ? "2px solid #000" : "1px solid #eee", cursor: "pointer", flexShrink: 0 }}
+                              style={{ position: "relative", width: 52, height: 52, borderRadius: 8, overflow: "hidden", border: "2px solid #000", flexShrink: 0 }}
                             >
                               <img src={img.path} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-                              {/* 已选图片右上角: 圆形删除(取消选择) */}
-                              {picked && (
-                                <div
-                                  onClick={(e) => { e.stopPropagation(); setPickedImgs((prev) => prev.filter((x) => x !== img.id)); }}
-                                  title="取消选择"
-                                  style={{ position: "absolute", top: 2, right: 2, width: 16, height: 16, borderRadius: "50%", background: "rgba(0,0,0,0.55)", color: "#fff", fontSize: 10, lineHeight: "16px", textAlign: "center", cursor: "pointer" }}
-                                >
-                                  ✕
-                                </div>
-                              )}
+                              {/* 即时删除(从本次选择移除, 立即消失) */}
+                              <div
+                                onClick={() => { setPickedImgs((prev) => prev.filter((x) => x !== img.id)); }}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                title="删除"
+                                style={{ position: "absolute", top: 0, right: 0, width: 20, height: 20, borderRadius: "50%", background: "rgba(0,0,0,0.55)", color: "#fff", fontSize: 11, lineHeight: "20px", textAlign: "center", cursor: "pointer", zIndex: 2 }}
+                              >
+                                ✕
+                              </div>
                             </div>
                           );
                         })}
-                        <div onClick={() => fileRef.current?.click()} style={{ width: 48, height: 48, borderRadius: 8, border: "1px dashed #ccc", display: "flex", alignItems: "center", justifyContent: "center", color: "#999", fontSize: 22, cursor: "pointer" }}>
+                        <div onClick={() => fileRef.current?.click()} style={{ width: 52, height: 52, borderRadius: 8, border: "1px dashed #ccc", display: "flex", alignItems: "center", justifyContent: "center", color: "#999", fontSize: 22, cursor: "pointer", flexShrink: 0 }}>
                           +
                         </div>
                         <input
@@ -663,7 +663,7 @@ export default function InfoCardModule(props: {
                           }}
                         />
                       </div>
-                      {pickedImgs.length > 0 && <div style={{ fontSize: 12, color: "#999", marginTop: 4 }}>已选 {pickedImgs.length} 张</div>}
+                      {pickedImgs.length > 0 && <div style={{ fontSize: 12, color: "#999", marginTop: 4 }}>已选 {pickedImgs.length} 张（✕ 立即删除）</div>}
                     </Form.Item>
                   </Form>
                   <Button type="primary" block onClick={() => void save()}>添加</Button>

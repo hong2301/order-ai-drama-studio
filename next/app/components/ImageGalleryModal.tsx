@@ -29,7 +29,7 @@ export default function ImageGalleryModal(props: {
   const { message } = AntApp.useApp();
 
   const [existing, setExisting] = useState<GalleryImage[]>([]); // 保留的已有图片(名称可编辑)
-  const [removed, setRemoved] = useState<GalleryImage[]>([]);   // 本次移除(可撤销, 确认后生效)
+  const [removed, setRemoved] = useState<GalleryImage[]>([]);   // 本次移除(仅标记, 点「确认」才生效; 可撤销)
   const [pending, setPending] = useState<PendingItem[]>([]);    // 待上传
   const [saving, setSaving] = useState(false);
 
@@ -62,6 +62,7 @@ export default function ImageGalleryModal(props: {
     ]);
   };
 
+  /** 移除: 仅标记(变灰+可撤销), 点「确认」才真正从记录移除 */
   const removeExisting = (id: number): void => {
     const hit = existing.find((x) => x.id === id);
     if (!hit) return;
@@ -69,11 +70,9 @@ export default function ImageGalleryModal(props: {
     setRemoved((prev) => [...prev, hit]);
   };
 
-  const undoRemove = (id: number): void => {
-    const hit = removed.find((x) => x.id === id);
-    if (!hit) return;
-    setRemoved((prev) => prev.filter((x) => x.id !== id));
-    setExisting((prev) => [...prev, hit]);
+  const undoRemove = (img: GalleryImage): void => {
+    setRemoved((prev) => prev.filter((x) => x.id !== img.id));
+    setExisting((prev) => [...prev, img]);
   };
 
   const dropPending = (key: string): void => {
@@ -193,8 +192,8 @@ export default function ImageGalleryModal(props: {
         </div>
       )}
 
-      {/* 已有图片 */}
-      <div style={{ fontSize: 12, color: "#999", marginBottom: 6 }}>已有图片（点名称可改）</div>
+      {/* 已有图片: ✕ 仅标记移除(变灰+可撤销), 点「确认」才真正生效 */}
+      <div style={{ fontSize: 12, color: "#999", marginBottom: 6 }}>已有图片（✕ 标记移除，确认后生效）</div>
       {existing.length === 0 && removed.length === 0 ? (
         <div style={{ fontSize: 12, color: "#ccc", padding: "8px 0" }}>暂无图片</div>
       ) : (
@@ -206,7 +205,7 @@ export default function ImageGalleryModal(props: {
                 <CloseOutlined
                   onClick={() => removeExisting(img.id)}
                   title="移除(确认后生效)"
-                  style={{ position: "absolute", top: 4, right: 4, fontSize: 11, color: "#fff", background: "rgba(0,0,0,0.45)", borderRadius: "50%", padding: 3, cursor: "pointer" }}
+                  style={{ position: "absolute", top: 4, right: 4, fontSize: 11, color: "#fff", background: "rgba(0,0,0,0.45)", borderRadius: "50%", padding: 3, cursor: "pointer", zIndex: 2 }}
                 />
               </div>
               <Input
@@ -217,15 +216,15 @@ export default function ImageGalleryModal(props: {
               />
             </div>
           ))}
-          {/* 已移除(可撤销) */}
+          {/* 已标记移除(可撤销) */}
           {removed.map((img) => (
             <div key={`rm_${img.id}`} style={{ ...cellStyle, opacity: 0.45 }}>
               <div style={{ position: "relative" }}>
                 <img src={img.path} style={{ ...thumbStyle, filter: "grayscale(1)" }} alt={img.name} />
                 <UndoOutlined
-                  onClick={() => undoRemove(img.id)}
+                  onClick={() => undoRemove(img)}
                   title="撤销移除"
-                  style={{ position: "absolute", top: 4, right: 4, fontSize: 11, color: "#fff", background: "rgba(0,0,0,0.55)", borderRadius: "50%", padding: 3, cursor: "pointer" }}
+                  style={{ position: "absolute", top: 4, right: 4, fontSize: 11, color: "#fff", background: "rgba(0,0,0,0.55)", borderRadius: "50%", padding: 3, cursor: "pointer", zIndex: 2 }}
                 />
               </div>
               <div style={{ fontSize: 11, color: "#999", textAlign: "center" }}>将移除</div>
