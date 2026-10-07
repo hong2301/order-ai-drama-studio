@@ -175,9 +175,84 @@ async function execSaveLastScript(args: Record<string, unknown>, lastAssistant: 
   return execAddScript({ content, name: args.name });
 }
 
+// ---------- 裸工具调用兜底 ----------
+// 触发场景: 按意图装载工具时漏判(如用户只说「加入」), 模型手里没有工具定义,
+// 却按训练格式把调用直接写进了回复文本(形如 <|FunctionCallBegin|>[{...}]) →
+// 用户看到"AI 说已保存", 剧本库却是空的。这里把它解析出来真正执行。
+/** 可安全兜底执行的写库工具(不含 create_video —— 避免误触发真实扣费) */
+const BARE_SAFE_TOOLS = new Set(["add_script", "save_last_script", "transform_script", "add_character", "add_scene", "add_product"]);
+
+/**
+ * 从 [from] 处做括号配对扫描, 返回完整的 JSON 数组文本。
+ * 不能用非贪婪正则: parameters.content 里可能含 [ ], 会提前截断导致解析失败。
+ */
+function balancedArrayFrom(text: string, from: number): string | null {
+  let depth = 0, inStr = false, esc = false;
+  for (let i = from; i < text.length; i++) {
+    const ch = text[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === "\\") esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') inStr = true;
+    else if (ch === "[") depth += 1;
+    else if (ch === "]") { depth -= 1; if (depth === 0) return text.slice(from, i + 1); }
+  }
+  return null;
+}
+
+/**
+ * 解析模型「裸写」的工具调用 —— 方舟没给工具定义时, 模型会把调用当普通文本吐出来。
+ * 实际形态(前缀可能带编码标记):
+ *   <#_tragencode#><|FunctionCallBegin|>[{"name":"add_script","parameters":{...}}]<|FunctionCallEnd|>
+ */
+function parseBareToolCalls(text: string): { name: string; args: Record<string, unknown> }[] {
+  const s = String(text || "");
+  const mark = s.indexOf("<|FunctionCallBegin|>");
+  if (mark < 0) return [];
+  const start = s.indexOf("[", mark);
+  if (start < 0) return [];
+  const json = balancedArrayFrom(s, start);
+  if (!json) return [];
+  try {
+    const arr = JSON.parse(json) as { name?: string; parameters?: unknown; arguments?: unknown }[];
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter((x) => x && typeof x.name === "string")
+      .map((x) => ({ name: String(x.name), args: (x.parameters || x.arguments || {}) as Record<string, unknown> }));
+  } catch { return []; }
+}
+
+/** 去掉残留的裸调用片段与编码标记(不能安全执行时, 别把这堆 token 甩给用户看) */
+function stripBareTokens(text: string): string {
+  return String(text || "")
+    .replace(/<\|FunctionCallBegin\|>[\s\S]*?(<\|FunctionCallEnd\|>|$)/g, "")
+    .replace(/<\|FunctionCallEnd\|>/g, "")
+    .replace(/<#_tragencode#>/g, "")
+    .trim();
+}
+
+/** 工具结果 JSON → 人类可读一行(兜底执行时用来替换回复) */
+function toolResultLine(name: string, raw: string): { line: string; ok: boolean } {
+  let p: { ok?: boolean; id?: number; name?: string; detail?: string; merged?: boolean } = {};
+  try { p = JSON.parse(raw) as typeof p; } catch { /* ignore */ }
+  const isScript = name === "add_script" || name === "save_last_script" || name === "transform_script";
+  if (p.ok) {
+    return {
+      ok: true,
+      line: isScript
+        ? `已保存到剧本库（ID：${p.id ?? "?"}，名称：${p.name || "未命名"}），人物/场景/产品解析已转后台处理。`
+        : `已写入资料库（${p.name || "未命名"}）${p.merged ? "，与同名记录合并" : ""}。`,
+    };
+  }
+  return { ok: false, line: `保存失败：${p.detail || "未知原因"}` };
+}
+
 // ---------- 工具按需装载: 系统提示词已给"工具索引", 完整定义仅在用户表达明确意图时携带, 日常对话零工具(响应最快) ----------
 /** 按用户最新消息意图装载工具组(读附件在"有文本附件"时自动带上) */
-function pickToolsByIntent(msg: string, hasTextAttach: boolean): ToolDef[] {
+function pickToolsByIntent(msg: string, hasTextAttach: boolean, hasVideo = false): ToolDef[] {
   const byDataName = (names: string[]): ToolDef[] => DATA_TOOLS.filter((t) => names.includes(t.name));
   // 剧本组: 写/存/查/改/删/提取剧本
   const groupScript: ToolDef[] = [SAVE_LAST_TOOL, TRANSFORM_TOOL, ADD_SCRIPT_TOOL, VIDEO_TO_SCRIPT_TOOL, ...byDataName(["query_script", "update_script", "delete_script"])];
@@ -188,11 +263,22 @@ function pickToolsByIntent(msg: string, hasTextAttach: boolean): ToolDef[] {
 
   const tools: ToolDef[] = [];
   const m = msg || "";
+  const head = m.split("\n[附件]")[0].trim();
+  // 承接性短指令(「加入」「保存」「存一下」「入库」…): 多轮对话里用户省略宾语, 关键词一个都不命中。
+  // 此时若不给工具定义, 模型会把调用"裸写"成文本 → 表现为"AI 说已保存, 库里却没有"。
+  const followUp = /^(好|好的|行|可以|嗯|ok|OK)?[\s,，。:：]*(加入|加进|加上|添加|放入|放进|存入|保存|存一下|存起来|存到|入库|收录|记录一下|记一下|写进去|提交|确认)(到|进)?\s*(剧本库|资料库|库)?\s*(里|里面|吧|呢)?\s*[。.!！]?$/.test(head);
+  // 极短肯定回应(AI 问「要保存进剧本库吗?」→ 用户「好的」): 与承接指令同源, 同样必须给工具
+  const affirm = /^(好|好的|好呀|行|可以|嗯|嗯嗯|是|是的|对|要|需要|ok|OK|没问题|麻烦你了)[\s,，。.!！~]*$/.test(head);
+  if (followUp || affirm) tools.push(SAVE_LAST_TOOL, ADD_SCRIPT_TOOL, TRANSFORM_TOOL, ...LIB_TOOLS);
+  // 剧本组: 写/存/查/改/删/提取剧本
   if (/剧本|分镜|写一集|写一段|成剧本|提取剧本|保存到剧本库|加入剧本库|删.*剧本|改.*剧本|查.*剧本|哪些剧本|几集/.test(m)) tools.push(...groupScript);
   if (/人物库|场景库|产品库|资料库|加入.*库|存到.*库|保存.*(人物|场景|产品)|删.*(人物|场景|产品)|改.*(人物|场景|产品)|查.*(人物库|场景库|产品库)/.test(m)) tools.push(...groupLib);
-  if (/生成视频|做一条|做一段|做条|开始生成|视频生成|视频模型|哪个模型|开通|拍个|制作视频|生成一条/.test(m)) tools.push(...groupVideo);
+  if (/生成视频|做一条|做一段|做条|开始生成|视频生成|视频模型|哪个模型|开通|拍个|制作视频|生成一条|来一条|生成一段|再生成/.test(m)) tools.push(...groupVideo);
+  // 带了视频附件 → 装载「视频提取剧本」(是否真调用由模型按用户意图决定)
+  if (hasVideo) tools.push(VIDEO_TO_SCRIPT_TOOL);
   if (hasTextAttach) tools.push(READ_FILE_TOOL);
-  return tools;
+  // 去重(followUp 与关键词命中可能重叠)
+  return tools.filter((t, i) => tools.findIndex((x) => x.name === t.name) === i);
 }
 
 /** 写入资料库表(去重合并: 同名同提示词/同名 → 合并身份) */
@@ -247,6 +333,9 @@ const VIDEO_TO_SCRIPT_TOOL: ToolDef = {
     properties: {
       video_url: { type: "string", description: "视频附件地址, 如 /api/uploads/chat/xxx.mp4" },
       name: { type: "string", description: "剧目名称(可选)" },
+      duration: { type: "number", description: "用户要求的成片时长(秒), 如 15; 用户没提就不要传" },
+      ratio: { type: "string", description: "画面比例 9:16/16:9/1:1; 用户没提就不要传" },
+      resolution: { type: "string", description: "分辨率 480P/720P/1080P; 用户没提就不要传" },
     },
     required: ["video_url"],
   },
@@ -293,29 +382,47 @@ async function execCreateVideo(args: Record<string, unknown>): Promise<string> {
   }
 }
 
-/** 视频 → 画面提示词 + 单集剧本初稿(不保存; 用户确认后再由 add_script 入库) */
-async function execVideoToScript(apiKey: string, modelId: string, args: Record<string, unknown>): Promise<string> {
+/** 视频 → 画面提示词 + 单集剧本初稿(不保存; 用户确认后再由 add_script 入库)
+ *  videoInContext: 本轮消息已带视频附件时不再重复传(省体积/降成本), 模型可从上文看到视频 */
+async function execVideoToScript(apiKey: string, modelId: string, args: Record<string, unknown>, videoInContext = false): Promise<string> {
   const videoDataUrl = localVideoToDataUrl(String(args.video_url || ""));
   if (!videoDataUrl) return JSON.stringify({ ok: false, detail: "视频不存在或格式不支持(mp4/webm/mov, ≤30MB)" });
+  // 用户对成片的要求(时长/比例/分辨率): 写进剧本的「视频配置」, 并用来约束分镜切分
+  const dur = Number(args.duration) || 0;
+  const cfg = [
+    dur > 0 ? `时长 ${dur} 秒` : "",
+    args.ratio ? `画面比例 ${String(args.ratio)}` : "",
+    args.resolution ? `分辨率 ${String(args.resolution)}` : "",
+  ].filter(Boolean).join(" · ");
   const instruction = [
     "请观看这段视频, 提取其中的剧情内容, 按下面顺序输出(不要省略):",
+    cfg ? `【用户对成片的要求(必须严格遵守)】${cfg}${dur > 0 ? ` —— 分镜各段秒数之和必须等于 ${dur} 秒` : ""}, 视频配置表里也要如实填写。` : "",
     "1. 【画面提示词】一段可直接用于视频模型生成的画面描述(人物/场景/镜头/光线/动作, 200字内)",
     "2. 一集完整剧本(Markdown), 结构固定为:",
     "   - 标题(系列名+集数+点题)",
-    "   - 视频配置(表格: 生成模型/分辨率/画面比例/时长/关键词, 分辨率默认480P)",
+    `   - 视频配置(表格: 生成模型/分辨率/画面比例/时长/关键词, 分辨率默认480P${cfg ? ", 按用户要求填写" : ""})`,
     "   - 人物(表格: 名称/身份标签/提示词-纯画面描述)",
     "   - 场景(表格: 名称/描述提示词)",
     "   - 产品(表格: 名称/描述提示词)",
     "   - 主剧情(两三句)",
-    "   - 【单集结构·分镜】两列表格写满: | 时间 | 画面与对白 | , 按3-4秒一段切分, 每段写清 地点+肢体动作+对白(人物台词:”xxx“)+镜头提示(括号内)",
+    `   - 【单集结构·分镜】两列表格写满: | 时间 | 画面与对白 | , 按3-4秒一段切分${dur > 0 ? `(全片 ${dur} 秒)` : ""}, 每段写清 地点+肢体动作+对白(人物台词:”xxx“)+镜头提示(括号内)`,
     "   - 剧情细节与执行要点",
     "要求: 人物/场景/产品贴合视频实际内容; 分镜具体到每个动作的起止; 对白口语短句。",
     "**只输出提示词与剧本初稿, 绝对不要保存到任何数据库** —— 用户确认后再说保存的事。",
-  ].join("\n");
+    "最后必须用一句话询问用户: 是否要把这个剧本加入剧本库。",
+  ].filter(Boolean).join("\n");
   try {
-    const scriptText = await chat(apiKey, modelId, [{ role: "user", content: instruction, videos: [videoDataUrl] }]);
+    const userMsg: ChatMsg = videoInContext
+      ? { role: "user", content: instruction }
+      : { role: "user", content: instruction, videos: [videoDataUrl] };
+    const scriptText = await chat(apiKey, modelId, [userMsg]);
     if (!scriptText.trim()) return JSON.stringify({ ok: false, detail: "未能从视频提取出内容" });
-    return JSON.stringify({ ok: true, draft: scriptText, detail: "已生成画面提示词与剧本初稿(未保存); 用户确认后可用 add_script 保存入库" });
+    return JSON.stringify({
+      ok: true,
+      draft: scriptText,
+      duration: dur || undefined,
+      detail: "已生成画面提示词与剧本初稿(未保存)。请把 draft 原文完整展示给用户(不要改写/省略), 最后再问一句是否加入剧本库",
+    });
   } catch (e) {
     return JSON.stringify({ ok: false, detail: `提取失败: ${(e as Error).message}` });
   }
@@ -376,66 +483,97 @@ export async function POST(req: NextRequest): Promise<Response> {
       .find((m) => m && m.role === "assistant" && typeof m.content === "string" && m.content.trim())?.content || "";
     // 按意图装载工具(日常对话不带工具, 最快)
     const msgForIntent = message + (attachText ? "\n[附件]" : "");
-    const tools = pickToolsByIntent(msgForIntent, attachFiles.length > 0);
-    const reply = await chat(apiKey, modelId, history, {
+    const tools = pickToolsByIntent(msgForIntent, attachFiles.length > 0, videos.length > 0);
+    /** 工具分发: 模型正式 tool_calls 与「裸写调用兜底」共用同一份逻辑 */
+    const handleToolCall = async (name: string, args: Record<string, unknown>): Promise<string> => {
+      // 数据查询/修改/删除(修改删除已含 confirm 确认校验)
+      const dataTool = execDataTool(name, args);
+      if (dataTool) {
+        if (DATA_TOOL_WRITES.has(name)) scriptsChanged = true; // 改/删之后前端刷新库
+        return await dataTool();
+      }
+      // 播放/展示: 新工具
+      if (name === "transform_script") {
+        const r = await execAddScript(args); // 复用入库+解析
+        const parsed = JSON.parse(r) as { ok?: boolean };
+        if (parsed.ok) scriptsChanged = true;
+        return r;
+      }
+      if (name === "video_to_script") {
+        // B 方案: 只出初稿不落库(scriptsChanged 由后续 add_script 触发)
+        return await execVideoToScript(apiKey, modelId, args, videos.length > 0);
+      }
+      if (name === "create_video") {
+        const r = await execCreateVideo(args);
+        try {
+          const parsed = JSON.parse(r) as { task_id?: string };
+          if (parsed.task_id) videoTaskIds.push(parsed.task_id);
+        } catch { /* ignore */ }
+        return r;
+      }
+      const lib = LIB_META[name];
+      if (lib) {
+        // 本轮附件图自动转图库并关联
+        const imgIds = await registerChatImages(chatImageUrls);
+        const r = await execLibAdd(lib.table as LibraryTable, args, imgIds);
+        const parsed = JSON.parse(r) as { ok?: boolean };
+        if (parsed.ok) scriptsChanged = true;
+        return r;
+      }
+      if (name === "save_last_script") {
+        const r = await execSaveLastScript(args, lastAssistant);
+        const parsed = JSON.parse(r) as { ok?: boolean };
+        if (parsed.ok) scriptsChanged = true;
+        return r;
+      }
+      if (name === "add_script") {
+        // 工具未传 file_path 且内容来自附件时, 用附件文件路径驼底
+        if (!String(args.file_path ?? "").trim() && attachFiles.length) {
+          args.file_path = attachFiles[0].path;
+        }
+        const r = await execAddScript(args);
+        const parsed = JSON.parse(r) as { ok?: boolean };
+        if (parsed.ok) scriptsChanged = true;
+        return r;
+      }
+      if (name === "read_file") {
+        return await execReadFile(args);
+      }
+      return JSON.stringify({ ok: false, detail: `未知工具 ${name}` });
+    };
+
+    let reply = await chat(apiKey, modelId, history, {
       tools: tools.length ? tools : undefined,
-      onToolCall: async (name, args) => {
-        // 数据查询/修改/删除(修改删除已含 confirm 确认校验)
-        const dataTool = execDataTool(name, args);
-        if (dataTool) {
-          if (DATA_TOOL_WRITES.has(name)) scriptsChanged = true; // 改/删之后前端刷新库
-          return await dataTool();
-        }
-        // 播放/展示: 新工具
-        if (name === "transform_script") {
-          const r = await execAddScript(args); // 复用入库+解析
-          const parsed = JSON.parse(r) as { ok?: boolean };
-          if (parsed.ok) scriptsChanged = true;
-          return r;
-        }
-        if (name === "video_to_script") {
-          // B 方案: 只出初稿不落库(scriptsChanged 由后续 add_script 触发)
-          return await execVideoToScript(apiKey, modelId, args);
-        }
-        if (name === "create_video") {
-          const r = await execCreateVideo(args);
-          try {
-            const parsed = JSON.parse(r) as { task_id?: string };
-            if (parsed.task_id) videoTaskIds.push(parsed.task_id);
-          } catch { /* ignore */ }
-          return r;
-        }
-        const lib = LIB_META[name];
-        if (lib) {
-          // 本轮附件图自动转图库并关联
-          const imgIds = await registerChatImages(chatImageUrls);
-          const r = await execLibAdd(lib.table as LibraryTable, args, imgIds);
-          const parsed = JSON.parse(r) as { ok?: boolean };
-          if (parsed.ok) scriptsChanged = true;
-          return r;
-        }
-        if (name === "save_last_script") {
-          const r = await execSaveLastScript(args, lastAssistant);
-          const parsed = JSON.parse(r) as { ok?: boolean };
-          if (parsed.ok) scriptsChanged = true;
-          return r;
-        }
-        if (name === "add_script") {
-          // 工具未传 file_path 且内容来自附件时, 用附件文件路径驼底
-          if (!String(args.file_path ?? "").trim() && attachFiles.length) {
-            args.file_path = attachFiles[0].path;
-          }
-          const r = await execAddScript(args);
-          const parsed = JSON.parse(r) as { ok?: boolean };
-          if (parsed.ok) scriptsChanged = true;
-          return r;
-        }
-        if (name === "read_file") {
-          return await execReadFile(args);
-        }
-        return JSON.stringify({ ok: false, detail: `未知工具 ${name}` });
-      },
+      onToolCall: handleToolCall,
     });
+
+    // 兜底: 按意图装载漏判时, 模型会把工具调用"裸写"成 <|FunctionCallBegin|>[...] 文本。
+    // 不真执行就会出现"AI 说已保存, 剧本库却是空的", 所以这里解析出来真的写库, 并把回复换成结果。
+    const bare = parseBareToolCalls(reply);
+    if (bare.length) {
+      const safe = bare.filter((c) => BARE_SAFE_TOOLS.has(c.name));
+      if (safe.length) {
+        const lines: string[] = [];
+        for (const c of safe) {
+          const r = await handleToolCall(c.name, c.args);
+          const parsed = toolResultLine(c.name, r);
+          if (parsed.ok) scriptsChanged = true;
+          lines.push(parsed.line);
+        }
+        console.log(`[bare-tool-call] 兜底执行 ${safe.map((c) => c.name).join(",")}`);
+        reply = lines.join("\n");
+      } else {
+        reply = stripBareTokens(reply)
+          || "这个操作我没能真正执行（模型把工具调用当文本输出了）。请再发一次，例如「把这个剧本加入剧本库」。";
+      }
+    }
+
+    // 最终保险: 任何形式的裸调用 token 都不能展示给用户
+    if (/<\|FunctionCallBegin\|>/.test(reply)) {
+      reply = stripBareTokens(reply)
+        || "这个操作我没能真正执行（模型把工具调用当文本输出了）。请再发一次，例如「把这个剧本加入剧本库」。";
+    }
+
     return Response.json({ reply, scriptsChanged, videoTaskIds });
   } catch (e) {
     if (e instanceof DoubaoError) return Response.json({ detail: `对话失败: ${e.code}` }, { status: 502 });
