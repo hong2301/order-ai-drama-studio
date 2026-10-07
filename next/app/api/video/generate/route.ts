@@ -8,6 +8,7 @@ import path from "path";
 import { getDb, persist, queryAll, queryOne, dataDir } from "@/lib/server/db";
 import { adaptPrompt, materialsFp } from "@/lib/server/video/adapt";
 import { createVideoTask, createPlaceholderTask, ensureVideoTables, TABLE, friendlyVideoError, readImageSize } from "@/lib/server/video";
+import { getModelDef } from "@/lib/server/video/registry";
 import type { VideoTask } from "@/lib/server/video/types";
 
 export const dynamic = "force-dynamic";
@@ -69,12 +70,13 @@ async function markPlaceholderFailed(id: string, msg: string): Promise<void> {
 async function runGenerate(b: GenBody, placeholderId: string): Promise<void> {
   const t0 = Date.now();
   const step = (s: string): void => console.log(`[generate] ${((Date.now() - t0) / 1000).toFixed(1)}s ${s}`);
+  // 参考图: 物料(人物/场景/产品)的**全部**图片 —— 声明在 try 外: catch 里要用它把方舟返回的 content[N] 换回物料名
+  let refImgs: { name?: string; url: string; kind?: string; material?: string }[] = [];
   try {
     step("开始");
     await ensureVideoTables();
     let prompt = String(b.prompt || "");
     let scriptName = b.scriptName || "";
-    let refImgs: { name?: string; url: string }[] = []; // 参考图(文生锚定人物/场景/产品)
 
     // 一致性检查 + 剧情适配(仅当绑定了剧本时)
     const scriptId = Number(b.scriptId);
@@ -112,27 +114,68 @@ async function runGenerate(b: GenBody, placeholderId: string): Promise<void> {
         }
         scriptName = String(row.name || "");
         step("剧本物料查询完成");
-        // 参考图(文生 t2v 锚定形象): 人物/场景/产品 每物料取第一张图; 尺寸不符(宽<300)直接中文报错
-        refImgs = [...chars, ...scenes, ...prods].map((m) => m.images?.[0]).filter((x): x is { name: string; url: string } => !!x);
+        // 参考图: 物料(人物/场景/产品)下的**全部**图片都要用(正面/侧面/服装/包装等多角度)
+        // 超出模型上限时用「均衡轮转」截断: 先保证每个物料至少 1 张, 再按顺序补第 2/3 张
+        const groups = [
+          ...chars.map((m) => ({ kind: "人物", material: m.name || "未命名", images: m.images || [] })),
+          ...scenes.map((m) => ({ kind: "场景", material: m.name || "未命名", images: m.images || [] })),
+          ...prods.map((m) => ({ kind: "产品", material: m.name || "未命名", images: m.images || [] })),
+        ];
+        const totalImgs = groups.reduce((n, g) => n + g.images.length, 0);
+        const maxRef = getModelDef(String(b.modelKey || ""))?.presets?.maxReferenceImages || 0;
+        const picked: typeof refImgs = [];
+        const maxDepth = groups.reduce((n, g) => Math.max(n, g.images.length), 0);
+        for (let depth = 0; depth < maxDepth; depth++) {
+          for (const g of groups) {
+            if (maxRef > 0 && picked.length >= maxRef) break;
+            const img = g.images[depth];
+            if (img) picked.push({ ...img, kind: g.kind, material: g.material });
+          }
+          if (maxRef > 0 && picked.length >= maxRef) break;
+        }
+        refImgs = picked;
+        if (totalImgs > refImgs.length) {
+          step(`参考图共 ${totalImgs} 张, 超出上限 ${maxRef || "?"} → 均衡取 ${refImgs.length} 张(每个物料优先保住首图)`);
+        }
+        // 单图/尺寸校验(官方: 宽高均 300~6000px、宽高比 0.4~2.5、单张 <30MB)
         for (const r of refImgs) {
           if (!r.url.startsWith("/api/uploads/")) continue;
           const m = /^\/api\/uploads\/([\w-]+)\/([\w.-]+)$/.exec(r.url);
           if (!m) continue;
           const file = path.join(dataDir(), "uploads", m[1], m[2]);
-          const size = fs.existsSync(file) ? readImageSize(file) : null;
-          if (size && size.w < 300) {
-            throw new Error(`参考图「${r.name || "未命名"}」尺寸过小：${size.w}×${size.h}px（方舟要求宽≥300px）。请到人物/场景/产品库更换更大尺寸的图片`);
+          if (!fs.existsSync(file)) continue;
+          const label = `${r.kind || "参考"}图「${r.name || "未命名"}」`;
+          const mb = fs.statSync(file).size / 1024 / 1024;
+          if (mb >= 30) throw new Error(`${label} 体积 ${mb.toFixed(1)}MB 超过方舟单图 30MB 上限, 请压缩后重新上传`);
+          const size = readImageSize(file);
+          if (!size) continue;
+          const { w, h } = size;
+          if (w < 300 || h < 300 || w > 6000 || h > 6000) {
+            throw new Error(`${label} 尺寸 ${w}×${h}px 超出方舟要求(宽高均需在 300~6000px)。请到人物/场景/产品库更换图片`);
+          }
+          const ar = w / h;
+          if (ar < 0.4 || ar > 2.5) {
+            throw new Error(`${label} 宽高比 ${ar.toFixed(2)} 超出方舟要求(0.4~2.5), 请更换更常规的图片`);
           }
         }
-        if (refImgs.length) step(`参考图 ${refImgs.length} 张(文生锚定人物/场景/产品)`);
+        if (refImgs.length) step(`参考图 ${refImgs.length} 张(全模态参考锚定人物/场景/产品)`);
       }
     }
 
+    // 参考图编号说明: 方舟按提示词里的「@图像N」把参考图绑到具体元素, 编号 = content 中参考图的先后顺序
+    // 图片名(如 正面照/侧面/冬装)有意义时带上, 便于模型区分同一对象的多张参考图; hash 名不展示
+    const isHashLike = (s: string): boolean => /^[0-9a-f]{16,}$/i.test(s) || /^\d{10,}/.test(s);
+    const refHint = refImgs.length
+      ? `\n\n【参考图对应(必须严格一致)】\n${refImgs.map((r, i) => {
+          const angle = r.name && !isHashLike(r.name) && r.name !== r.material ? `（${r.name}）` : "";
+          return `@图像${i + 1} = ${r.kind || "参考"}「${r.material || "未命名"}」${angle}`;
+        }).join("\n")}\n画面中对应的人物(脸型/发型/服装造型)、场景(光线/陈设)、产品(外观/包装/文字)必须与 @图像N 保持一致; 同一对象的多张参考图(正面/侧面/不同服装等)属于同一形象, 描述这些元素时按 @图像N 书写, 严禁替换成其他形象。`
+      : "";
     step(`提交 createVideoTask(参考图 ${refImgs.length} 张)`);
     const task = await createVideoTask({
       modelKey: String(b.modelKey || ""),
       // 末尾附 生成硬性约束(严格遵守剧本/人物场景产品/角度正常等)
-      prompt: `${prompt}\n${GENERATION_CONSTRAINTS}`.trim(),
+      prompt: `${prompt}${refHint}\n${GENERATION_CONSTRAINTS}`.trim(),
       imageUrl: b.imageUrl || null,
       referenceImages: refImgs,
       resolution: b.resolution || undefined,
@@ -146,7 +189,12 @@ async function runGenerate(b: GenBody, placeholderId: string): Promise<void> {
     await persist();
   } catch (e) {
     // 失败: 占位标记 failed(视频库占位消失/显示错误), 不中断
-    await markPlaceholderFailed(placeholderId, (e as Error).message);
+    // 方舟用 content[N] 指代第 N 个输入(N 从 1 起, content[0] 是文本) → 换成物料名, 让用户知道是哪张图出的问题
+    const msg = (e as Error).message.replace(/content\[(\d+)\]/g, (raw, d) => {
+      const r = refImgs[Number(d) - 1];
+      return r ? `${r.kind || "参考"}图「${r.name || "未命名"}」` : raw;
+    });
+    await markPlaceholderFailed(placeholderId, msg);
   }
 }
 
