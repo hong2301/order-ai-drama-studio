@@ -72,6 +72,29 @@ export function normName(name: string): string {
     .trim();
 }
 
+/**
+ * 从剧本正文里猜一个可读的名字(未显式传 name 时用)。
+ * 跳过空行、Markdown 标题标记、表格行, 以及光秃秃的字段名(如「标题」),
+ * 避免出现「## 标题」这种名字。
+ */
+export function guessScriptName(content: string): string {
+  // 结构性小标题(没有实际名字)不当作剧本名
+  const STRUCT = /^(标题|剧名|名称|剧本名|画面提示词|提示词|视频配置|人物|场景|产品|主剧情|分镜|分镜脚本|单集结构|执行要点|剧情细节)[:：]?$/;
+  for (const raw of String(content || "").split(/\r?\n/)) {
+    const line = raw.trim()
+      .replace(/^#{1,6}\s*/, "")        // Markdown 标题标记
+      .replace(/^[-*>]\s*/, "")         // 列表/引用标记
+      .replace(/^[*_]+/, "").replace(/[*_]+$/, "")   // 粗体/斜体标记
+      .trim();
+    if (!line) continue;
+    if (line.startsWith("|")) continue;        // 表格行
+    if (/^[|:\-\s]+$/.test(line)) continue;    // 表格分隔行
+    if (STRUCT.test(line)) continue;
+    return line.slice(0, 40);
+  }
+  return "未命名";
+}
+
 /** 每次写操作后同步落盘(数据量小, 全量导出成本可忽略) */
 export async function persist(): Promise<void> {
   try {

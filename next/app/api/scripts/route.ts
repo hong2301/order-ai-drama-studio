@@ -1,6 +1,6 @@
 // 剧本: GET /api/scripts 列表(名称模糊/创建日期范围/分页) | POST 新增(名称+内容, 名称可自动生成)
 import type { NextRequest } from "next/server";
-import { getDb, queryAll, queryOne, persist } from "@/lib/server/db";
+import { getDb, queryAll, queryOne, persist, guessScriptName } from "@/lib/server/db";
 
 type Body = { name?: string; file_path?: string; content?: string };
 
@@ -68,8 +68,8 @@ export async function POST(req: NextRequest): Promise<Response> {
     return Response.json({ detail: "参数解析失败" }, { status: 400 });
   }
   const content = b.content || "";
-  // 名称未填时从内容首行截取(自动命名)
-  const finalName = (b.name || "").trim() || content.split(/\r?\n/)[0].trim().slice(0, 30) || "";
+  // 名称未填时从内容里猜一个可读的名字(跳过 Markdown 标记/表格行/字段名)
+  const finalName = (b.name || "").trim() || guessScriptName(content);
   if (!finalName) return Response.json({ detail: "名称或内容不能为空" }, { status: 400 });
   const now = new Date().toISOString();
   const db = await getDb();

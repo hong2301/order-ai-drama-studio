@@ -1,6 +1,6 @@
 // 剧本: PUT /api/scripts/[id] 部分更新(提示词/名称/物料关联/生成参数) | DELETE 删除单个
 import type { NextRequest } from "next/server";
-import { getDb, queryOne, persist } from "@/lib/server/db";
+import { getDb, queryOne, persist, guessScriptName } from "@/lib/server/db";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -40,7 +40,7 @@ export async function PUT(req: NextRequest, ctx: Ctx): Promise<Response> {
   if (sets.includes("name=") && !String(b.name ?? "").trim()) {
     const row = queryOne(db, "SELECT name, content FROM scripts WHERE id=?", [nid]);
     const src = typeof b.content === "string" && b.content.trim() ? b.content : String(row?.content || "");
-    const fallback = src.split(/\r?\n/)[0].trim().slice(0, 30) || "未命名";
+    const fallback = guessScriptName(src);
     vals[0] = fallback;
   }
   if (!sets.length) return Response.json({ detail: "没有可更新的字段" }, { status: 400 });
