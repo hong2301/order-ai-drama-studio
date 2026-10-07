@@ -528,7 +528,10 @@ export default function ScriptModule() {
                   });
                   const j = (await r.json()) as { detail?: string; ok?: boolean };
                   if (!r.ok) throw new Error(j.detail || "保存失败");
-                  window.dispatchEvent(new Event("scripts-changed")); // 刷新列表(名称可能随首行变化)
+                  // 先本地更新: 列表刷新是异步的, 不先更新的话用户保存后立刻再点开看到的还是旧内容
+                  setItems((prev) => prev.map((i) => (i.id === pid ? { ...i, content: pv } : i)));
+                  message.success("已保存");
+                  window.dispatchEvent(new Event("scripts-changed")); // 再拉一次, 同步名称等派生字段
                 } catch (e) {
                   message.error((e as Error).message);
                 }
