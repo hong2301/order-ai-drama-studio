@@ -10,6 +10,8 @@ export const TABLE = "video_tasks";
 
 /** 将方舟/接口原始错误翻译为中文友好提示(命中规则加说明, 否则原样) */
 const ERROR_RULES: [RegExp, string][] = [
+  // 必须放在 SensitiveContentDetected 之前: 后者会把这个更具体的码一并吃掉
+  [/InputImageSensitiveContentDetected|may contain real person/i, "参考图含真人面孔, 平台不接受(Seedance 2.0/2.5 限制); 请改用非写实人物图/预置虚拟人像/已授权素材"],
   [/SensitiveContentDetected/i, "平台内容审核拦截"],
   [/Copyright|版权/i, "可能涉及版权内容"],
   [/ModelNotOpen/i, "该模型未开通，请在火山方舟控制台开通后再试"],
@@ -171,11 +173,24 @@ export async function createVideoTask(input: {
   // 时长上限不写死在代码里: 原样交给模型接口, 超出时 provider 取接口返回的上限重试并回传提示
   const duration = input.duration;
 
+  // 参考图(人物/场景/产品锚定)校验 —— 官方「图生视频-参考图」仅 Seedance 2.0 系列及以上支持,
+  // 且与首帧图互斥(图生视频 / 全模态参考是不可混用的两种场景)
+  let referenceImages = input.referenceImages || [];
+  if (referenceImages.length) {
+    if (input.imageUrl) throw new Error("参考图与首帧图不能同时使用(方舟: 图生视频与全模态参考为互斥场景)");
+    const maxRef = p?.maxReferenceImages || 0;
+    if (!maxRef) throw new Error(`模型「${def.name}」不支持参考图锚定(人物/场景/产品), 请改用 Seedance 2.0 系列模型`);
+    if (referenceImages.length > maxRef) {
+      console.log(`[video] 参考图 ${referenceImages.length} 张超出「${def.name}」上限 ${maxRef} 张, 已截断`);
+      referenceImages = referenceImages.slice(0, maxRef);
+    }
+  }
+
   const t = await provider.submit({
     model: def.model,
     prompt: input.prompt,
     imageUrl: input.imageUrl || null,
-    referenceImages: input.referenceImages,
+    referenceImages,
     resolution: input.resolution,
     ratio: input.ratio,
     duration,
@@ -280,8 +295,9 @@ export async function refreshVideoTask(id: string): Promise<VideoTask | null> {
     const age = Date.now() - born;
     if (local.id.startsWith("local-")) {
       // 占位: 300s 内视为正常(适配/提交中, 提交可能要排队); 超过 → 标记失败, 避免占位永久悬挂
-      if (age < 300_000) return { ...local, error: null };
-      const msg = "生成提交超时(后台可能中断), 请重试";
+      // 注意: 保留已有 error —— 若后台已写入真实失败原因(如方舟审核拦截), 不要被兜底文案盖掉
+      if (age < 300_000) return { ...local, error: local.error || null };
+      const msg = local.error || "生成提交超时(后台可能中断), 请重试";
       const now = new Date().toISOString();
       db.run(`UPDATE ${TABLE} SET status=?, error=?, updated_at=? WHERE id=?`, ["failed", msg, now, id]);
       await persist();

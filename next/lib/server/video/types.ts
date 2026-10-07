@@ -30,6 +30,12 @@ export interface VideoModelDef {
     duration?: boolean;
     /** 时长上限(秒); 超出直接报错, 不静默降级 */
     durationMax?: number;
+    /**
+     * 支持的最大参考图数量(人物/场景/产品锚定)。
+     * 注意: 官方「图生视频-参考图」仅 Seedance 2.0 系列(≤9 张)与 2.5(≤30 张)支持;
+     * 1.0 系列只支持首帧/首尾帧 —— 0/缺省 = 不支持参考图。
+     */
+    maxReferenceImages?: number;
   };
   /** 每秒费用(元/秒, 估算; 以方舟计费页为准)。时长可设, 总费用 ≈ 秒数 × 每秒价 */
   pricePerSecond?: number;

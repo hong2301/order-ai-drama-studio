@@ -50,15 +50,14 @@ async function request<T>(pathname: string, init?: RequestInit, timeoutMs = 6000
   return JSON.parse(text) as T;
 }
 
-/** 按模型能力把"一张输入图"转成方舟期望的 content 类型 */
-function imageContentType(model: string): "image_url" | "first_frame" {
-  // 1-0-pro 系列声明 first_frame; fast 及新系列声明 image
-  return model.includes("seedance-1-0-pro-250528") ? "first_frame" : "image_url";
-}
-
 async function postTask(body: Record<string, unknown>): Promise<{ id: string; status?: string }> {
-  // 提交受理应秒级返回: 30s 未响应即失败(避免"准备中"久等)
-  return request<{ id: string; status?: string }>("/contents/generations/tasks", { method: "POST", body: JSON.stringify(body) }, 30000);
+  const payload = JSON.stringify(body);
+  // 提交受理通常秒级返回; 但多图参考时请求体可达数十 MB, 上传本身就要几十秒
+  // —— 按体积给超时(基准 30s + 每 MB 3s, 上限 180s), 避免大请求被误判超时
+  const mb = Buffer.byteLength(payload) / 1048576;
+  const timeout = Math.min(180000, 30000 + Math.ceil(mb) * 3000);
+  if (mb > 5) console.log(`[video] 提交请求体 ${mb.toFixed(1)}MB, 超时放宽至 ${(timeout / 1000).toFixed(0)}s`);
+  return request<{ id: string; status?: string }>("/contents/generations/tasks", { method: "POST", body: payload }, timeout);
 }
 
 /** 从接口错误里解析时长上限(方舟: "duration ... must be less than or equal to 12") — 上限由接口定, 代码不写死 */
@@ -108,24 +107,25 @@ export const doubaoVideo: VideoProvider = {
   name: "火山方舟(豆包)",
 
   async submit(req: VideoSubmitRequest) {
-    const out: Record<string, unknown> = {
-      text: req.prompt?.trim() ? [{ type: "text", text: req.prompt.trim() }] : [],
-    };
-    const content: Record<string, unknown>[] = out.text as Record<string, unknown>[];
-    if (req.imageUrl) {
-      const url = toWireUrl(req.imageUrl);
-      const t = imageContentType(req.model);
-      if (t === "first_frame") content.push({ type: "first_frame", first_frame: { url } });
-      else content.push({ type: "image_url", image_url: { url } });
+    // 方舟 content 元素统一是 { type: 'image_url', image_url: { url }, role? }:
+    //   role 省略   = 图生视频-首帧
+    //   first_frame / last_frame = 图生视频-首尾帧
+    //   reference_image          = 全模态参考生视频(人物/场景/产品锚定)
+    const content: Record<string, unknown>[] = req.prompt?.trim() ? [{ type: "text", text: req.prompt.trim() }] : [];
+    if (req.imageUrl) content.push({ type: "image_url", image_url: { url: toWireUrl(req.imageUrl) } });
+    if (req.lastFrameUrl) {
+      content.push({ type: "image_url", image_url: { url: toWireUrl(req.lastFrameUrl) }, role: "last_frame" });
     }
-    if (req.lastFrameUrl) content.push({ type: "last_frame", last_frame: { url: toWireUrl(req.lastFrameUrl) } });
+    // 参考图必须进 content 且带 role=reference_image。
+    // 旧实现写在顶层 body.reference —— 方舟无此字段, 会被静默忽略(任务照样成功但图片完全没参与生成)。
+    for (const r of req.referenceImages || []) {
+      content.push({ type: "image_url", image_url: { url: toWireUrl(r.url) }, role: "reference_image" });
+    }
     if (!content.length) throw new Error("至少需要提示词或图片");
 
     const body: Record<string, unknown> = { model: req.model, content };
-    // 参考图(文生 t2v 锚定人物/场景/产品形象); 与首帧 imageUrl 互斥
-    if (req.referenceImages?.length) {
-      body.reference = req.referenceImages.map((r) => ({ type: "image_url", image_url: { url: toWireUrl(r.url) } }));
-    }
+    // 有参考图时显式声明任务类型(默认 auto, 显式传入更稳)
+    if (req.referenceImages?.length) body.omni_reference_task_type = "reference";
     if (req.resolution) body.resolution = req.resolution;
     if (req.ratio) body.ratio = req.ratio;
     if (req.duration) body.duration = req.duration; // 数字(方舟要求数值型, 字符串会 InvalidParameter)

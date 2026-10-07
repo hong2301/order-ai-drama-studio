@@ -26,6 +26,7 @@ export const MODELS: VideoModelDef[] = [
     modes: ["text", "image"] as VideoInputMode[],
     status: "active",
     note: "文生视频 + 图生视频(首帧)",
+    // 1.0 系列不支持参考图(全模态参考): 只能首帧/首尾帧 → maxReferenceImages 不给
     presets: { resolutions: ["480P", "720P", "1080P"], ratios: ["9:16", "16:9", "1:1"], duration: true, durationMax: 12 },
     // 官方: 输入 7.5 / 输出 15 元每百万token; 按 720P·16:9·25fps 折算(每秒token=1280*720*25/1024=22500) ≈ 0.34 元/秒
     pricePerSecond: 0.34,
@@ -38,6 +39,7 @@ export const MODELS: VideoModelDef[] = [
     modes: ["text", "image"] as VideoInputMode[],
     status: "active",
     note: "文生视频 + 图生视频, 生成更快",
+    // 1.0 系列不支持参考图(全模态参考)
     presets: { resolutions: ["480P", "720P", "1080P"], ratios: ["9:16", "16:9", "1:1"], duration: true, durationMax: 12 },
     // 官方: 输入 2.1 / 输出 4.2 元每百万token; 720P·16:9·25fps 折算 ≈ 0.09 元/秒
     pricePerSecond: 0.09,
@@ -52,7 +54,7 @@ export const MODELS: VideoModelDef[] = [
     modes: ["text", "image"] as VideoInputMode[],
     status: "active",
     note: "免费档 · 支持人物台词/旁白(口型一般)；促销4折约 0.2 元/秒(720P)",
-    presets: { resolutions: ["480P", "720P", "1080P"], ratios: ["9:16", "16:9", "1:1"], duration: true, durationMax: 15 },
+    presets: { resolutions: ["480P", "720P", "1080P"], ratios: ["9:16", "16:9", "1:1"], duration: true, durationMax: 15, maxReferenceImages: 9 },
     pricePerSecond: 0.2,
   },
   {
@@ -63,7 +65,7 @@ export const MODELS: VideoModelDef[] = [
     modes: ["text", "image"] as VideoInputMode[],
     status: "active",
     note: "免费档 · 支持人物台词/旁白；促销75折约 0.6 元/秒(720P)",
-    presets: { resolutions: ["480P", "720P", "1080P"], ratios: ["9:16", "16:9", "1:1"], duration: true, durationMax: 15 },
+    presets: { resolutions: ["480P", "720P", "1080P"], ratios: ["9:16", "16:9", "1:1"], duration: true, durationMax: 15, maxReferenceImages: 9 },
     pricePerSecond: 0.6,
   },
 
@@ -76,6 +78,7 @@ export const MODELS: VideoModelDef[] = [
     modes: ["text", "image"] as VideoInputMode[],
     status: "inactive",
     note: "会员专属(200元/月档): 台词/口型/配音可控性强; 未开通",
+    presets: { maxReferenceImages: 9 },
   },
   {
     key: "doubao-seedance-2-5",
@@ -85,6 +88,7 @@ export const MODELS: VideoModelDef[] = [
     modes: ["text", "image"] as VideoInputMode[],
     status: "inactive",
     note: "最新版·会员专属(500元/月档): 台词/口型/配音可控性最强; 未开通",
+    presets: { maxReferenceImages: 30 },
   },
 
   // ---------- 快下线/已移除(展示但禁用) ----------
