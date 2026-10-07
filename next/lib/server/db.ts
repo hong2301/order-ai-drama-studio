@@ -21,26 +21,30 @@ function findWasmPath(): string {
   return path.join(process.cwd(), "node_modules", "sql.js", "dist", "sql-wasm.wasm");
 }
 
-let _sql: SqlJsStatic | null = null;
+// ⚠ Next(dev 与 standalone) 按 route 分包: 模块级变量会让每个 route 各持一份内存库,
+//   写回时全量覆盖 → 丢失更新(例如真实失败原因被占位兜底文案冲掉)。
+//   统一挂到 globalThis, 保证一个进程内只有一份 sql.js 实例 / 一份数据目录。
+const G = globalThis as unknown as {
+  __dramaStore?: { sql: SqlJsStatic | null; dataDir: string | null; ready: Promise<Database> | null };
+};
+const store = (G.__dramaStore ??= { sql: null, dataDir: null, ready: null });
+
 async function getSql(): Promise<SqlJsStatic> {
-  if (!_sql) {
+  if (!store.sql) {
     const mod = require("sql.js") as unknown;
     const initFn = (mod as { default?: unknown }).default ?? mod;
-    _sql = (await (initFn as (cfg?: { locateFile?: (f: string) => string }) => Promise<SqlJsStatic>)({
+    store.sql = (await (initFn as (cfg?: { locateFile?: (f: string) => string }) => Promise<SqlJsStatic>)({
       locateFile: () => findWasmPath(),
     }));
   }
-  return _sql;
+  return store.sql;
 }
 
-let _dataDir: string | null = null;
 export function dataDir(): string {
-  if (_dataDir) return _dataDir;
-  _dataDir = process.env.DRAMA_DATA_DIR || path.join(process.cwd(), "..", "data");
-  return _dataDir;
+  if (store.dataDir) return store.dataDir;
+  store.dataDir = process.env.DRAMA_DATA_DIR || path.join(process.cwd(), "..", "data");
+  return store.dataDir;
 }
-
-let _ready: Promise<Database> | null = null;
 
 // ---------- 查询帮助 ----------
 export function queryAll(db: Database, sql: string, params: unknown[] = []): Record<string, unknown>[] {
@@ -71,7 +75,7 @@ export function normName(name: string): string {
 /** 每次写操作后同步落盘(数据量小, 全量导出成本可忽略) */
 export async function persist(): Promise<void> {
   try {
-    const db = await _ready;
+    const db = await store.ready;
     if (db) {
       fs.mkdirSync(dataDir(), { recursive: true });
       fs.writeFileSync(path.join(dataDir(), "drama.db"), Buffer.from(db.export()));
@@ -80,8 +84,8 @@ export async function persist(): Promise<void> {
 }
 
 export function getDb(): Promise<Database> {
-  if (!_ready) {
-    _ready = (async () => {
+  if (!store.ready) {
+    store.ready = (async () => {
       const sql = await getSql();
       fs.mkdirSync(dataDir(), { recursive: true });
       const dbPath = path.join(dataDir(), "drama.db");
@@ -92,7 +96,7 @@ export function getDb(): Promise<Database> {
       return db;
     })();
   }
-  return _ready;
+  return store.ready;
 }
 
 function initSchema(db: Database): void {
@@ -219,6 +223,12 @@ function initSchema(db: Database): void {
       if (rows.length) void persist();
     } catch { /* ignore */ }
   }
+
+  // 辅助任务模型初始化(只设一次, 之后用户在设置里改了不会被覆盖)
+  try {
+    const has = db.exec("SELECT 1 FROM settings WHERE key='aux_model'").length > 0;
+    if (!has) db.run("INSERT INTO settings(key,value) VALUES('aux_model',?)", ["doubao-seed-2-0-mini-260428"]);
+  } catch { /* ignore */ }
 }
 
 /** 读取配置项 */
@@ -226,6 +236,18 @@ export async function getSetting<T = string>(key: string, fallback: T): Promise<
   const db = await getDb();
   const r = queryOne(db, "SELECT value FROM settings WHERE key=?", [key]);
   return (r ? (r.value as T) : fallback);
+}
+
+/**
+ * 辅助任务的模型(提示词融合 / 一致性适配 / 剧本解析)。
+ * 这类任务简单且与对话无关, 用轻量模型即可 —— 而对话模型可能是**推理模型**(单次几十秒),
+ * 拿它做这些任务会直接超过各自超时, 导致"融合/适配"静默降级、功能形同失效。
+ * settings.aux_model 为空时沿用对话模型(保持旧行为)。
+ */
+export async function getAuxModel(): Promise<string> {
+  const aux = String(await getSetting("aux_model", "")).trim();
+  if (aux) return aux;
+  return getSetting("chat_model", process.env.DOUBAO_CHAT_MODEL || "doubao-seed-2-0-mini-260428");
 }
 
 /** 写入配置项 */
