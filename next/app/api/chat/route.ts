@@ -5,7 +5,7 @@ import fs from "fs";
 import path from "path";
 import mammoth from "mammoth";
 import { chat, DoubaoError, type ChatMsg, type ToolDef } from "@/lib/server/doubao";
-import { dataDir, getDb, persist, getApiKey } from "@/lib/server/db";
+import { dataDir, getDb, persist, getApiKey, guessScriptName } from "@/lib/server/db";
 import { SYSTEM_PROMPT, SCRIPT_SKILL, needScriptSkill } from "@/lib/server/chatSystem";
 import { DATA_TOOLS, execDataTool, DATA_TOOL_WRITES, registerChatImages } from "@/lib/server/chatDataTools";
 import { createVideoTask, ensureVideoTables } from "@/lib/server/video";
@@ -74,7 +74,7 @@ async function execAddScript(args: Record<string, unknown>): Promise<string> {
   const content = String(args.content ?? "").trim();
   if (!content) return JSON.stringify({ ok: false, detail: "内容为空" });
   const filePath = String(args.file_path ?? "").trim();
-  const name = String(args.name ?? "").trim() || content.split(/\r?\n/)[0].trim().slice(0, 30) || "未命名";
+  const name = String(args.name ?? "").trim() || guessScriptName(content);
   const now = new Date().toISOString();
   try {
     const db = await getDb();
@@ -252,7 +252,7 @@ function toolResultLine(name: string, raw: string): { line: string; ok: boolean 
 
 // ---------- 工具按需装载: 系统提示词已给"工具索引", 完整定义仅在用户表达明确意图时携带, 日常对话零工具(响应最快) ----------
 /** 按用户最新消息意图装载工具组(读附件在"有文本附件"时自动带上) */
-function pickToolsByIntent(msg: string, hasTextAttach: boolean, hasVideo = false): ToolDef[] {
+function pickToolsByIntent(msg: string, hasTextAttach: boolean, hasVideo = false, hasImage = false): ToolDef[] {
   const byDataName = (names: string[]): ToolDef[] => DATA_TOOLS.filter((t) => names.includes(t.name));
   // 剧本组: 写/存/查/改/删/提取剧本
   const groupScript: ToolDef[] = [SAVE_LAST_TOOL, TRANSFORM_TOOL, ADD_SCRIPT_TOOL, VIDEO_TO_SCRIPT_TOOL, ...byDataName(["query_script", "update_script", "delete_script"])];
@@ -274,6 +274,8 @@ function pickToolsByIntent(msg: string, hasTextAttach: boolean, hasVideo = false
   if (/剧本|分镜|写一集|写一段|成剧本|提取剧本|保存到剧本库|加入剧本库|删.*剧本|改.*剧本|查.*剧本|哪些剧本|几集/.test(m)) tools.push(...groupScript);
   if (/人物库|场景库|产品库|资料库|加入.*库|存到.*库|保存.*(人物|场景|产品)|删.*(人物|场景|产品)|改.*(人物|场景|产品)|查.*(人物库|场景库|产品库)/.test(m)) tools.push(...groupLib);
   if (/生成视频|做一条|做一段|做条|开始生成|视频生成|视频模型|哪个模型|开通|拍个|制作视频|生成一条|来一条|生成一段|再生成/.test(m)) tools.push(...groupVideo);
+  // 带了图片附件 + 提到物料/库 → 可能是「给资料库记录挂图」(update_library 的 images 操作)
+  if (hasImage && /图|照片|这张|物料|人物|场景|产品|资料库/.test(head)) tools.push(...groupLib);
   // 带了视频附件 → 装载「视频提取剧本」(是否真调用由模型按用户意图决定)
   if (hasVideo) tools.push(VIDEO_TO_SCRIPT_TOOL);
   if (hasTextAttach) tools.push(READ_FILE_TOOL);
@@ -327,7 +329,7 @@ const TRANSFORM_TOOL: ToolDef = {
 
 const VIDEO_TO_SCRIPT_TOOL: ToolDef = {
   name: "video_to_script",
-  description: "用户上传了视频并明确要求「提取为剧本/转成剧本/根据视频写剧本」时调用: 观看视频内容, 先生成【画面提示词】+ 单集剧本初稿(按剧本规范), **只输出初稿不保存数据库**; 等用户确认后, 再按用户要求用 add_script 保存入库。注意: 只有用户明确说要把视频转成剧本时才调用。",
+  description: "用户上传了视频并明确要求「提取为剧本/转成剧本/根据视频写剧本/复刻成剧本」时调用: 观看视频内容, 先生成【画面提示词】+ 单集剧本初稿(按剧本规范), **只输出初稿不保存数据库**; 等用户确认后, 再按用户要求用 add_script 保存入库。注意: (1) 只有用户明确说要把视频转成剧本时才调用; (2) **本工具只做「视频→剧本」** —— 换产品/换展示哪个包装不是它的职责, 那属于资料库挂图的独立操作, 不要写进剧本。",
   parameters: {
     type: "object",
     properties: {
@@ -336,6 +338,7 @@ const VIDEO_TO_SCRIPT_TOOL: ToolDef = {
       duration: { type: "number", description: "用户要求的成片时长(秒), 如 15; 用户没提就不要传" },
       ratio: { type: "string", description: "画面比例 9:16/16:9/1:1; 用户没提就不要传" },
       resolution: { type: "string", description: "分辨率 480P/720P/1080P; 用户没提就不要传" },
+      extra: { type: "string", description: "用户的其它要求(如 保留原视频的分镜节奏 / 换旁白风格 / 加优惠话术 / 强调某个卖点 / 做成无声); 用户提了才传, 原文转述。注意: 换产品不是本工具的职责, 那是去资料库给产品挂图的独立操作" },
     },
     required: ["video_url"],
   },
@@ -384,19 +387,26 @@ async function execCreateVideo(args: Record<string, unknown>): Promise<string> {
 
 /** 视频 → 画面提示词 + 单集剧本初稿(不保存; 用户确认后再由 add_script 入库)
  *  videoInContext: 本轮消息已带视频附件时不再重复传(省体积/降成本), 模型可从上文看到视频 */
-async function execVideoToScript(apiKey: string, modelId: string, args: Record<string, unknown>, videoInContext = false): Promise<string> {
+async function execVideoToScript(apiKey: string, modelId: string, args: Record<string, unknown>, videoInContext = false, chatImages: string[] = []): Promise<string> {
   const videoDataUrl = localVideoToDataUrl(String(args.video_url || ""));
   if (!videoDataUrl) return JSON.stringify({ ok: false, detail: "视频不存在或格式不支持(mp4/webm/mov, ≤30MB)" });
   // 用户对成片的要求(时长/比例/分辨率): 写进剧本的「视频配置」, 并用来约束分镜切分
   const dur = Number(args.duration) || 0;
+  const extra = String(args.extra || "").trim();
   const cfg = [
     dur > 0 ? `时长 ${dur} 秒` : "",
     args.ratio ? `画面比例 ${String(args.ratio)}` : "",
     args.resolution ? `分辨率 ${String(args.resolution)}` : "",
   ].filter(Boolean).join(" · ");
   const instruction = [
-    "请观看这段视频, 提取其中的剧情内容, 按下面顺序输出(不要省略):",
+    "请观看这段视频, **严格按视频里真实出现的画面复刻**成一个剧本。这是「复刻/克隆」, 不是重新创作。",
+    "【铁律】",
+    "- 只写视频里**真实看到**的人物/场景/产品/动作/字幕/口播, 绪不虚构视频中不存在的人物或情节;",
+    "- 分镜表必须与原视频的**画面推进、镜头切换、时间节奏一一对应**;",
+    "- 原视频的口播/字幕话术尽量沿用(可顺滑措辞, 但不要换主题、不要加没说过的话);",
+    "- 若视频里**没有人出镜**(纯产品展示 / 只有手部 / 画外音), 人物表写「无（无人出镜）」, 对白用旁白或字幕形式, **不要凭空添加一个人物**;",
     cfg ? `【用户对成片的要求(必须严格遵守)】${cfg}${dur > 0 ? ` —— 分镜各段秒数之和必须等于 ${dur} 秒` : ""}, 视频配置表里也要如实填写。` : "",
+    extra ? `【用户的额外要求(必须满足)】${extra}\n(提醒: 本工具只负责「视频→剧本」。如果用户要求换产品、换人物形象或换包装, 那不是改剧本文字的事——应当告知用户到资料库给对应记录挂图片, 不要自行把品牌/包装细节写进剧本。)` : "",
     "1. 【画面提示词】一段可直接用于视频模型生成的画面描述(人物/场景/镜头/光线/动作, 200字内)",
     "2. 一集完整剧本(Markdown), 结构固定为:",
     "   - 标题(系列名+集数+点题)",
@@ -407,14 +417,15 @@ async function execVideoToScript(apiKey: string, modelId: string, args: Record<s
     "   - 主剧情(两三句)",
     `   - 【单集结构·分镜】两列表格写满: | 时间 | 画面与对白 | , 按3-4秒一段切分${dur > 0 ? `(全片 ${dur} 秒)` : ""}, 每段写清 地点+肢体动作+对白(人物台词:”xxx“)+镜头提示(括号内)`,
     "   - 剧情细节与执行要点",
-    "要求: 人物/场景/产品贴合视频实际内容; 分镜具体到每个动作的起止; 对白口语短句。",
+    "要求: 分镜逐段对应原视频画面; 对白/字幕优先沿用原视频话术; 对白口语短句。",
     "**只输出提示词与剧本初稿, 绝对不要保存到任何数据库** —— 用户确认后再说保存的事。",
     "最后必须用一句话询问用户: 是否要把这个剧本加入剧本库。",
   ].filter(Boolean).join("\n");
   try {
+    // 带上用户本轮上传的图片: 「换成我传的这张图里的产品」需要模型真的能看到那张图
     const userMsg: ChatMsg = videoInContext
-      ? { role: "user", content: instruction }
-      : { role: "user", content: instruction, videos: [videoDataUrl] };
+      ? { role: "user", content: instruction, images: chatImages }
+      : { role: "user", content: instruction, videos: [videoDataUrl], images: chatImages };
     const scriptText = await chat(apiKey, modelId, [userMsg]);
     if (!scriptText.trim()) return JSON.stringify({ ok: false, detail: "未能从视频提取出内容" });
     return JSON.stringify({
@@ -483,11 +494,21 @@ export async function POST(req: NextRequest): Promise<Response> {
       .find((m) => m && m.role === "assistant" && typeof m.content === "string" && m.content.trim())?.content || "";
     // 按意图装载工具(日常对话不带工具, 最快)
     const msgForIntent = message + (attachText ? "\n[附件]" : "");
-    const tools = pickToolsByIntent(msgForIntent, attachFiles.length > 0, videos.length > 0);
+    const tools = pickToolsByIntent(msgForIntent, attachFiles.length > 0, videos.length > 0, chatImageUrls.length > 0);
+    const calledTools = new Set<string>();   // 本轮已调用的工具(防重复劳动/越权入库)
     /** 工具分发: 模型正式 tool_calls 与「裸写调用兜底」共用同一份逻辑 */
     const handleToolCall = async (name: string, args: Record<string, unknown>): Promise<string> => {
+      // 视频已出初稿后不许再用 transform_script —— 它会把剧本直接写库,
+      // 违背「先出初稿、等用户确认后再入库」的设计(实测模型会连调这两个工具)
+      if (name === "transform_script" && calledTools.has("video_to_script")) {
+        return JSON.stringify({
+          ok: false,
+          detail: "本轮已通过 video_to_script 产出剧本初稿: 请直接把初稿完整展示给用户并询问是否入库, 不要调用 transform_script(它会把剧本直接写库)",
+        });
+      }
+      calledTools.add(name);
       // 数据查询/修改/删除(修改删除已含 confirm 确认校验)
-      const dataTool = execDataTool(name, args);
+      const dataTool = execDataTool(name, args, chatImageUrls);
       if (dataTool) {
         if (DATA_TOOL_WRITES.has(name)) scriptsChanged = true; // 改/删之后前端刷新库
         return await dataTool();
@@ -501,7 +522,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       }
       if (name === "video_to_script") {
         // B 方案: 只出初稿不落库(scriptsChanged 由后续 add_script 触发)
-        return await execVideoToScript(apiKey, modelId, args, videos.length > 0);
+        return await execVideoToScript(apiKey, modelId, args, videos.length > 0, images);
       }
       if (name === "create_video") {
         const r = await execCreateVideo(args);
