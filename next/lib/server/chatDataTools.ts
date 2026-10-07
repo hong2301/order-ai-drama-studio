@@ -166,7 +166,7 @@ async function execQueryScript(args: Record<string, unknown>): Promise<string> {
 const UPDATE_LIB_TOOL: ToolDef = {
   name: "update_library",
   description:
-    "修改资料库某条记录。人物库可改名称/身份标签/提示词; 场景库与产品库只有名称/提示词(没有标签字段)。**修改前必须先向用户确认要改的字段与新内容, 用户明确同意(或用户直接点名要改某字段)后 confirm 传 true 才执行**; 未征得同意绝不要调用。修改后引用该记录的剧本会重新做一致性检查。",
+    "修改资料库某条记录。人物库可改名称/身份标签/提示词; 场景库与产品库只有名称/提示词(没有标签字段)。还可**操控该记录的图片**(见 images 参数)。**修改前必须先向用户确认要改的字段与新内容, 用户明确同意(或用户直接点名要改某字段)后 confirm 传 true 才执行**; 未征得同意绝不要调用。修改后引用该记录的剧本会重新做一致性检查。",
   parameters: {
     type: "object",
     properties: {
@@ -175,13 +175,18 @@ const UPDATE_LIB_TOOL: ToolDef = {
       name: { type: "string", description: "新名称(可选)" },
       identity: { type: "array", items: { type: "string" }, description: "新的身份/标签数组(可选)" },
       prompt: { type: "string", description: "新提示词(可选)" },
+      images: {
+        type: "string",
+        enum: ["append", "replace", "clear"],
+        description: "图片操作(可选): append=把用户**本轮对话上传的图片附件**追加为该记录的参考图(不覆盖已有, 多角度都保留); replace=用本轮图片整体替换该记录现有图片; clear=清空图片。不改图片就不要传。要求用户本轮确实发了图。",
+      },
       confirm: { type: "boolean", description: "用户明确同意修改后传 true, 否则不要调用" },
     },
     required: ["table", "id", "confirm"],
   },
 };
 
-async function execUpdateLibrary(args: Record<string, unknown>): Promise<string> {
+async function execUpdateLibrary(args: Record<string, unknown>, imageUrls: string[] = []): Promise<string> {
   const deny = requireConfirm(args);
   if (deny) return deny;
   const table = tableOf(args);
@@ -203,14 +208,33 @@ async function execUpdateLibrary(args: Record<string, unknown>): Promise<string>
   let newPrompt = String(exist.prompt || "");
   if (args.prompt !== undefined && args.prompt !== null) newPrompt = String(args.prompt).trim();
 
+  // 图片操作: append/replace 用「用户本轮上传的附件图」; clear 清空
+  let newImages = String(exist.image_ids || "[]");
+  const imgOp = String(args.images || "").trim();
+  if (imgOp) {
+    if (imgOp === "clear") {
+      newImages = "[]";
+    } else if (imgOp === "append" || imgOp === "replace") {
+      const cur = parseNums(newImages);
+      const incoming = await registerChatImages(imageUrls);
+      if (!incoming.length) {
+        return JSON.stringify({ ok: false, detail: "本轮对话里没有图片附件: 请先把图片发给我, 再说“加到这条记录上”" });
+      }
+      newImages = JSON.stringify(imgOp === "append" ? [...new Set([...cur, ...incoming])] : incoming);
+    } else {
+      return JSON.stringify({ ok: false, detail: "images 只支持 append / replace / clear" });
+    }
+  }
+
   const nameOrPromptChanged = newName !== String(exist.name) || newPrompt !== String(exist.prompt);
   const identityChanged = newIdentity !== String(exist.identity);
-  if (!nameOrPromptChanged && !identityChanged) {
+  const imagesChanged = newImages !== String(exist.image_ids);
+  if (!nameOrPromptChanged && !identityChanged && !imagesChanged) {
     return JSON.stringify({ ok: true, detail: "内容没有变化, 未执行更新" });
   }
   db.run(
-    `UPDATE ${table} SET name=?, identity=?, prompt=?, content_key=?, name_key=?, updated_at=? WHERE id=?`,
-    [newName, newIdentity, newPrompt, contentKey(newName, newPrompt), normName(newName), new Date().toISOString(), id],
+    `UPDATE ${table} SET name=?, identity=?, prompt=?, image_ids=?, content_key=?, name_key=?, updated_at=? WHERE id=?`,
+    [newName, newIdentity, newPrompt, newImages, contentKey(newName, newPrompt), normName(newName), new Date().toISOString(), id],
   );
   // 名称/提示词变化 → 引用它的剧本下次生成重新做一致性适配(精确匹配, 避免 id 子串误伤)
   if (nameOrPromptChanged) {
@@ -223,7 +247,11 @@ async function execUpdateLibrary(args: Record<string, unknown>): Promise<string>
     }
   }
   await persist();
-  return JSON.stringify({ ok: true, id, name: newName, detail: `${TABLE_LABEL[table]} #${id}「${newName}」已更新` });
+  const imgCount = parseNums(newImages).length;
+  return JSON.stringify({
+    ok: true, id, name: newName, images: imgCount,
+    detail: `${TABLE_LABEL[table]} #${id}「${newName}」已更新, 现有图片 ${imgCount} 张${imagesChanged ? "(图片已变更)" : ""}`,
+  });
 }
 
 // ---------- 修改: 剧本(需用户确认, 内容变化后自动重新解析) ----------
@@ -425,7 +453,7 @@ export const DATA_TOOLS: ToolDef[] = [
 ];
 
 /** 工具名 → 执行函数; 返回 null 表示不是本文件负责的工具 */
-const HANDLERS: Record<string, (args: Record<string, unknown>) => Promise<string>> = {
+const HANDLERS: Record<string, (args: Record<string, unknown>, imageUrls?: string[]) => Promise<string>> = {
   query_video_models: execQueryVideoModels,
   query_library: execQueryLibrary,
   query_script: execQueryScript,
@@ -438,7 +466,7 @@ const HANDLERS: Record<string, (args: Record<string, unknown>) => Promise<string
 /** 写操作(改/删) → 库已变, 前端应刷新 */
 export const DATA_TOOL_WRITES = new Set(["update_library", "update_script", "delete_library", "delete_script"]);
 
-export function execDataTool(name: string, args: Record<string, unknown>): (() => Promise<string>) | null {
+export function execDataTool(name: string, args: Record<string, unknown>, imageUrls: string[] = []): (() => Promise<string>) | null {
   const fn = HANDLERS[name];
-  return fn ? () => fn(args) : null;
+  return fn ? () => fn(args, imageUrls) : null;
 }
