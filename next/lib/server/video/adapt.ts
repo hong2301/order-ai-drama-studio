@@ -1,7 +1,7 @@
 // 剧本一致性检查 + 剧情适配: 生成前把"已配置的人物/场景/产品"与"固定提示词(剧情)"对齐
-// 用 AI 对话模块当前选择的模型(settings.chat_model, 与解析同源), 输出适配后的完整生成提示词
+// 用辅助模型(settings.aux_model, 默认轻量; 空则沿用对话模型), 输出适配后的完整生成提示词
 import { chat, type ToolDef } from "@/lib/server/doubao";
-import { getSetting, getApiKey } from "@/lib/server/db";
+import { getAuxModel, getApiKey } from "@/lib/server/db";
 import fs from "fs";
 import path from "path";
 import { dataDir } from "@/lib/server/db";
@@ -60,7 +60,7 @@ export async function adaptPrompt(input: AdaptInput): Promise<{ prompt: string; 
   const apiKey = await getApiKey();
   if (!apiKey) return null;
   // 与 AI 对话模块当前选择的模型同步(无则用环境变量默认)
-  const model = await getSetting("chat_model", process.env.DOUBAO_CHAT_MODEL || "doubao-seed-2-0-mini-260428");
+  const model = await getAuxModel();
 
   const fmt = (list: ScriptMaterial[]): string =>
     list.length ? list.map((c) => `- ${c.name}: ${c.prompt}${c.images?.length ? `（参考图: ${c.images.map((i) => i.name || i.url).join("、")}）` : ""}`).join("\n") : "（无）";
@@ -116,7 +116,8 @@ export async function adaptPrompt(input: AdaptInput): Promise<{ prompt: string; 
         },
       });
     })();
-    const timeout = new Promise<void>((res) => setTimeout(res, 40000));
+    // 适配限 60s: 超时走降级, 直接返回 null 用原文
+    const timeout = new Promise<void>((res) => setTimeout(res, 60000));
     await Promise.race([chatDone, timeout]);
     console.log(`[adapt] ${result.value?.prompt ? "完成" : "超时降级"}, 耗时 ${((Date.now() - t0) / 1000).toFixed(1)}s, 参考图 ${refImgs.length} 张, prompt 长度 ${String(result.value?.prompt || "").length}`);
   } catch (e) {
