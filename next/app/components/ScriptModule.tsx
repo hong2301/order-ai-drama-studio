@@ -60,6 +60,7 @@ export default function ScriptModule() {
   const [saving, setSaving] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; id: number } | null>(null); // 行右键菜单
   const [editPrompt, setEditPrompt] = useState<{ open: boolean; id: number; value: string }>({ open: false, id: 0, value: "" }); // 提示词弹窗编辑
+  const [editName, setEditName] = useState<{ open: boolean; id: number; value: string }>({ open: false, id: 0, value: "" });     // 标题弹窗编辑
   const [dragging, setDragging] = useState(false);      // 拖拽高亮
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [textForm] = Form.useForm();
@@ -314,6 +315,28 @@ export default function ScriptModule() {
     }
   };
 
+  /** 保存剧本标题(只改 name, 不动内容) */
+  const saveName = async (): Promise<void> => {
+    const pid = editName.id;
+    const nv = editName.value.trim();
+    if (!nv) { message.warning("标题不能为空"); return; }
+    setEditName((p) => ({ ...p, open: false }));
+    try {
+      const r = await fetch(`/api/scripts/${pid}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: nv }),   // 只传 name: 内容/物料关联/生成参数均不动
+      });
+      const j = (await r.json()) as { detail?: string; ok?: boolean };
+      if (!r.ok) throw new Error(j.detail || "保存失败");
+      setItems((prev) => prev.map((i) => (i.id === pid ? { ...i, name: nv } : i))); // 本地立即更新
+      message.success("标题已更新");
+      window.dispatchEvent(new Event("scripts-changed"));
+    } catch (e) {
+      message.error((e as Error).message);
+    }
+  };
+
   const columns: ColumnsType<Script> = [
     {
       title: "名称", dataIndex: "name", key: "name",
@@ -331,8 +354,13 @@ export default function ScriptModule() {
         } catch { /* ignore */ }
         return (
           <div style={{ display: "flex", flexDirection: "column" }}>
-            <Tooltip title={v} placement="topLeft">
-              <span style={{ fontSize: 13 }}>{v}</span>
+            <Tooltip title={`${v}（点击可修改标题）`} placement="topLeft">
+              <span
+                style={{ fontSize: 13, cursor: "text" }}
+                onClick={(e) => { e.stopPropagation(); setEditName({ open: true, id: rec.id, value: v || "" }); }}
+              >
+                {v}
+              </span>
             </Tooltip>
             {tag && <span style={{ fontSize: 10, color: "#bbb" }}>{tag}</span>}
           </div>
@@ -500,6 +528,22 @@ export default function ScriptModule() {
 
       {/* 视频库弹窗 */}
       <VideoLibraryModal open={videoLibOpen} onClose={() => setVideoLibOpen(false)} />
+
+      {/* 标题弹窗编辑(点击名称列打开) */}
+      <Modal open={editName.open} title="修改标题" onCancel={() => setEditName((p) => ({ ...p, open: false }))} footer={null} width={460} destroyOnHidden>
+        <Input
+          value={editName.value}
+          onChange={(e) => setEditName((p) => ({ ...p, value: e.target.value }))}
+          onPressEnter={() => void saveName()}
+          placeholder="剧本标题…"
+          maxLength={80}
+          showCount
+        />
+        <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <Button onClick={() => setEditName((p) => ({ ...p, open: false }))}>取消</Button>
+          <Button type="primary" onClick={() => void saveName()}>保存</Button>
+        </div>
+      </Modal>
 
       {/* 提示词弹窗编辑(点击提示词列打开) */}
       <Modal open={editPrompt.open} title="编辑提示词" onCancel={() => setEditPrompt((p) => ({ ...p, open: false }))} footer={null} width={560} destroyOnHidden>
