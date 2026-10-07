@@ -1,6 +1,9 @@
 # AI视频工坊 — 开发索引
 
 豆包(火山方舟) AI 视频生成工作台。Next 全栈(页面 + API + SQLite) + Electron 套壳(TS)。
+
+> 用户视角的完整操作链路（视频生成 / AI 对话工具调用 / 视频提取剧本 / 三库同名合并融合 / 参考图手绘化）见 **[OPERATION-FLOWS.md](OPERATION-FLOWS.md)**。
+> 结构索引见 **[CODEBASE-INDEX.md](CODEBASE-INDEX.md)**。
 **改代码前先读本文件**，通常不用再全仓搜索。
 
 ## 技术栈
@@ -94,10 +97,13 @@
 - **环境变量**：只有根 `.env`；`next.config.ts` 启动时手动解析注入(不是 Next 自带 dotenv)，**改完必须重启 dev**；`.env` 已不入库，运行时可用顶栏「API Key」按钮改(即时生效 + 回写 .env)
 - **数据目录**：dev = `<root>/data/`(由 `next.config.ts` 注入 `DRAMA_DATA_DIR`)；正式版 win = exe 同级 `data/`，mac = `~/Library/Application Support/AI视频工坊/data`
 - **数据库**：sql.js 纯 WASM —— 内存操作 + 写后全量 `persist()` 落盘到 `data/drama.db`；三库去重键 `name_key`(名称归一化)/`content_key`(名称+提示词)，剧本 `materials_fp`(物料指纹，判断是否需要一致性适配)
-- **视频生成链路**：`/api/video/generate` → (有 scriptId 时)物料指纹变化才做一致性适配 → `createVideoTask` → 商家 provider 提交 → 轮询 `/api/video/tasks/[id]`(成功后**下载视频到 data/uploads/videos/ 本地化**，因方舟 URL 有时效) → 视频库
-- **视频模型能力**：Seedance 1.0 Pro/Fast 无声、时长 ≤12 秒；Seedance 2.0 Mini/Fast 支持台词/旁白(提示词写「人物台词：xxx」)；注册表 `presets.durationMax` 是硬校验，超限**直接报错不静默降级**
+- **视频生成链路**：`/api/video/generate` → (有 scriptId 时)物料指纹变化才做一致性适配 → 收集参考图(人物/场景/产品各取首图, 并在提示词里注入「@图像N」对应关系) → `createVideoTask` → 商家 provider 提交 → 轮询 `/api/video/tasks/[id]`(成功后**下载视频到 data/uploads/videos/ 本地化**，因方舟 URL 有时效) → 视频库
+- **参考图(全模态参考)**：图片必须放进 `content[]` 并带 `role:"reference_image"`(同时传 `omni_reference_task_type:"reference"`)；仅 Seedance 2.0 系列(≤9 张)/2.5(≤30 张)支持，**1.0 系列不支持**，且与首帧图互斥
+- **视频模型能力**：Seedance 1.0 Pro/Fast 无声；Seedance 2.0 Mini/Fast 支持台词/旁白(提示词写「人物台词：xxx」)；时长上限**以模型接口为准**(接口报 "must be less than or equal to N" 时 provider 按该上限重试并回传提示)，`presets.durationMax` 仅供展示/AI 提示参考
 - **模型价格**：均为估算/官方刊例(见 registry `pricePerSecond` 与 modelsProbe `CHAT_PRICE`)，以方舟计费页为准
 - **AI 对话**：每次会话注入 `chatSystem.ts` 的系统上下文；工具可写剧本库/资料库、把视频提取为剧本、直接创建视频生成任务
+- **视频转剧本(video_to_script)**：上传视频 → 模型观看(**对话模型需支持 video 输入**, 如 seed-2.1-pro) → 输出【画面提示词】+ 剧本初稿(**不落库**) → 未尾询问是否入库；可传 duration/ratio/resolution 约束成片；视频已在本轮上下文时不重复传(省体积/降成本)
+- **工具装载**：`pickToolsByIntent` 按意图装载(短指令/肯定回应/带视频/带文本附件都有兜底)；模型在**没工具**时会把调用裸写成 `<|FunctionCallBegin|>[...]` 文本 —— route 里已兜底解析(括号配对)+真执行+清洗
 - **剧本格式**：一集一故事，含 视频配置/人物/场景/产品/主剧情/**分镜表(时间 | 画面与对白)**/执行要点（规范见 `chatSystem.ts`）
 - **UI 风格**：黑白灰极简；模块从左到右排列、无标题；head = logo + 刷新 + API Key
 - **antd 6 API**：DropDown 用 `popupRender`(不是 dropdownRender)、Tooltip 用 `styles.container`(不是 overlayInnerStyle)、Modal 用 `destroyOnHidden`
@@ -125,3 +131,6 @@ curl -s -X POST http://127.0.0.1:3171/api/library/dedupe   # 三库历史去重�
 7. **改依赖后要检查原生二进制**：`electron/` 与 `next/` 各自独立 `node_modules`，根目录只装 concurrently。
 8. **本机 urllib 走代理会 502**：脚本调本项目接口请用 `curl`（`python3 urllib` 常被本机代理拦截返回 502）。
 9. **视频画面质量**：Seedance 是画面语义模型——剧本/提示词要**动作驱动**(有起止的肢体动作 + 镜头说明)，避免"人物站着只动嘴"；对白写「人物台词：xxx」由模型输出语音，且台词要绑定动作。
+10. **参考图必须进 `content[]`**：写顶层 `body.reference` 属于未知字段，方舟**静默忽略**——HTTP 200、任务照样成功，就是图完全没参与生成。零成本自检：带 `duration:999` 探测，返回 `in r2v` 才算识别，返回 `in t2v` 就是被当成纯文生视频了。
+11. **AI 说"已保存"但库里没有**：工具按 `pickToolsByIntent` 关键词装载，用户只用承接性短指令(「加入」「存一下」「好的」)时容易漏判，此时模型会把调用裸写成 `<|FunctionCallBegin|>[...]` 文本。`chat/route.ts` 已有兜底解析+真执行，但**新增工具时要同步补触发词**。
+12. **Seedance 2.0/2.5 不接受含真人人脸的参考图**(平台策略)：写实人像会被拦，需用预置虚拟人像或已授权素材；这也是人物库图选择时的硬约束。

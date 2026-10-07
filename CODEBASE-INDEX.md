@@ -1,6 +1,7 @@
 # AI视频工坊 — 代码库索引 (CODEBASE INDEX)
 
 > 结构查询/调用链/影响面的快速索引(对标 codebase-memory)。改代码前可先看这里, 再对照 AGENTS.md 的目录地图。
+> 用户视角的完整操作链路见 **[OPERATION-FLOWS.md](OPERATION-FLOWS.md)**。
 > 项目: Next16 全栈(页面+API) + Electron 壳 + sql.js SQLite, 端口 3171。
 
 ## 快速决策表
@@ -19,7 +20,7 @@
 ## 模块 → 依赖图(页面层级)
 
 ```
-app/page.tsx (client, head: logo+v1.1.0+APIKey)
+app/page.tsx (client, head: logo + 版本号(读 /api/version) + APIKey)
 ├─ ChatModule        → /api/chat(工具调用) · /api/conversations* · /api/models·/select
 ├─ ScriptModule      → /api/scripts* (列表/上传/解析/批量删) → 联动三库/控制台
 ├─ ConsoleModule     → /api/video/models(探测) · /api/video/generate(占位+后台提交) · /api/video/tasks/[id](轮询)
