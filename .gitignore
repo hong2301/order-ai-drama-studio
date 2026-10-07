@@ -4,6 +4,10 @@ node_modules/
 # --- Next 构建产物 ---
 .next/
 out/
+# next-env.d.ts 由 Next 自动生成: next dev 写 .next/dev/types/、next build 写 .next/types/,
+# 两者反复切换会产生无意义 diff(此前已为此单独提交过一次) → 不入库;
+# 本地文件保留, 新克隆跑一次 dev/build 会自动生成(仅 TS 类型声明, 不影响构建与打包)
+next/next-env.d.ts
 
 # --- 打包产物 ---
 release/
