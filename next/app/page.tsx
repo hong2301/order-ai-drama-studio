@@ -45,10 +45,10 @@ export default function Home() {
       </header>
 
       {/* body: 模块从左到右排列, 自动填充剩余高度(无 tail) */}
-      <div style={{ flex: 1, minHeight: 0, padding: 16, display: "flex", gap: 16, alignItems: "stretch" }}>
+      <div style={{ flex: 1, minHeight: 0, padding: 16, display: "flex", gap: 16, alignItems: "stretch", overflowX: "auto" }}>
         <ChatModule />
-        {/* 剧本(上, 6) + 控制台(下, 4) 同列 */}
-        <div style={{ width: 460, display: "flex", flexDirection: "column", gap: 12 }}>
+        {/* 剧本(上, 6) + 控制台(下, 4) 同列: 弹性宽度(窗口拉大跟着变宽), 保底 420 */}
+        <div style={{ flex: 1, minWidth: 420, display: "flex", flexDirection: "column", gap: 12 }}>
           <div style={{ flex: 6, minHeight: 0, display: "flex", flexDirection: "column" }}>
             <ScriptModule />
           </div>
@@ -57,7 +57,7 @@ export default function Home() {
           </div>
         </div>
         {/* 人物/场景/产品: 三个资料库上中下排成一列(共用图片表), flex 撑满列高 */}
-        <div style={{ width: 460, display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ flex: 1, minWidth: 420, display: "flex", flexDirection: "column", gap: 12 }}>
           <InfoCardModule title="人物库" api="/api/characters" identityLabel="身份" identityPlaceholder="输入身份后回车, 如 主角/婆婆/邻居" />
           <InfoCardModule title="场景库" api="/api/scenes" identityLabel="类型" identityPlaceholder="" showIdentity={false} />
           <InfoCardModule title="产品库" api="/api/products" identityLabel="品类" identityPlaceholder="" showIdentity={false} />
