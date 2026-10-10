@@ -137,11 +137,11 @@ export default function VideoLibraryModal(props: { open: boolean; onClose: () =>
           }}
         >
           {loading ? (
-            <div style={{ padding: 40, textAlign: "center", color: "#999" }}>
+            <div style={{ padding: 40, textAlign: "center", color: "var(--text-4)" }}>
               <Spin /> 加载中…
             </div>
           ) : tasks.length === 0 ? (
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={<span style={{ fontSize: 13, color: "#bbb" }}>暂无生成完成的视频</span>} style={{ padding: "36px 0" }} />
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={<span style={{ fontSize: 13, color: "var(--text-5)" }}>暂无生成完成的视频</span>} style={{ padding: "36px 0" }} />
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 14 }}>              {tasks.map((t) => {
                 const done = t.status === "succeeded" && t.videoUrl;
@@ -152,8 +152,8 @@ export default function VideoLibraryModal(props: { open: boolean; onClose: () =>
                     onClick={() => setPlayer(t)}
                     onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenu({ x: e.clientX, y: e.clientY, id: t.id }); }}
                     style={{
-                      border: "1px solid #eee", borderRadius: 12, overflow: "hidden", cursor: "pointer",
-                      background: "#fff", transition: "box-shadow .2s", position: "relative",
+                      border: "1px solid var(--border-2)", borderRadius: 12, overflow: "hidden", cursor: "pointer",
+                      background: "var(--bg-card)", transition: "box-shadow .2s", position: "relative",
                     }}
                   >
                     {/* 封面: video 预加载停在首帧(可大尺寸展示) */}
@@ -177,10 +177,10 @@ export default function VideoLibraryModal(props: { open: boolean; onClose: () =>
                       </div>
                     </div>
                     <div style={{ padding: "9px 11px" }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: "#222", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {t.scriptName || "未命名剧本"}
                       </div>
-                      <div style={{ fontSize: 11, color: "#aaa", marginTop: 3 }}>创建于 {fmtDate(t.createdAt)}</div>
+                      <div style={{ fontSize: 11, color: "var(--text-5)", marginTop: 3 }}>创建于 {fmtDate(t.createdAt)}</div>
                     </div>
                   </div>
                 ) : failed ? (
@@ -191,15 +191,15 @@ export default function VideoLibraryModal(props: { open: boolean; onClose: () =>
                       title="右键可删除"
                       style={{
                         border: "1px solid #f0c0c0", borderRadius: 12, overflow: "hidden",
-                        background: "#fff7f7", position: "relative", cursor: "default",
+                        background: "var(--bg-danger-soft)", position: "relative", cursor: "default",
                       }}
                     >
-                      <div style={{ aspectRatio: "16/9", background: "#f8e8e8", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                      <div style={{ aspectRatio: "16/9", background: "var(--bg-danger-track)", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
                         <span style={{ fontSize: 13, color: "#d4380d" }}>⚠️</span>
                         <span style={{ fontSize: 13, color: "#d4380d", fontWeight: 600 }}>{t.status === "cancelled" ? "已取消" : "生成失败"}</span>
                       </div>
                       <div style={{ padding: "9px 11px" }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: "#555", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {t.scriptName || "未命名剧本"}
                         </div>
                         <div style={{ fontSize: 11, color: "#d4380d", marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -216,10 +216,10 @@ export default function VideoLibraryModal(props: { open: boolean; onClose: () =>
                     title="生成中… 右键可删除"
                     style={{
                       border: "1px dashed #d9d9d9", borderRadius: 12, overflow: "hidden",
-                      background: "#fafafa", position: "relative", cursor: "context-menu",
+                      background: "var(--bg-subtle)", position: "relative", cursor: "context-menu",
                     }}
                   >
-                    <div style={{ position: "relative", aspectRatio: "16/9", background: "#f0f0f0", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                    <div style={{ position: "relative", aspectRatio: "16/9", background: "var(--bg-track)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>
                       {/* 左上角: 生成计时(完成/失败后卡片消失, 不显示) */}
                       <div style={{ position: "absolute", top: 6, left: 6, background: "rgba(0,0,0,0.5)", color: "#fff", fontSize: 11, lineHeight: "15px", padding: "0 7px", borderRadius: 10, fontVariantNumeric: "tabular-nums" }}>
                         {(() => {
@@ -228,7 +228,7 @@ export default function VideoLibraryModal(props: { open: boolean; onClose: () =>
                         })()}
                       </div>
                       <Spin />
-                      <span style={{ fontSize: 12, color: "#666" }}>
+                      <span style={{ fontSize: 12, color: "var(--text-2)" }}>
                         {(() => {
                           const preparing = String(t.id).startsWith("local-");
                           if (preparing) {
@@ -243,10 +243,10 @@ export default function VideoLibraryModal(props: { open: boolean; onClose: () =>
                       </span>
                     </div>
                     <div style={{ padding: "9px 11px" }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: "#666", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {t.scriptName || "未命名剧本"}
                       </div>
-                      <div style={{ fontSize: 11, color: "#bbb", marginTop: 3 }}>创建于 {fmtDate(t.createdAt)}</div>
+                      <div style={{ fontSize: 11, color: "var(--text-5)", marginTop: 3 }}>创建于 {fmtDate(t.createdAt)}</div>
                     </div>
                   </div>
                 );
@@ -255,12 +255,12 @@ export default function VideoLibraryModal(props: { open: boolean; onClose: () =>
           )}
           {/* 滚动加载状态 */}
           {loadingMore && (
-            <div style={{ textAlign: "center", padding: 14, fontSize: 12, color: "#999" }}>
+            <div style={{ textAlign: "center", padding: 14, fontSize: 12, color: "var(--text-4)" }}>
               <Spin size="small" style={{ marginRight: 6 }} />加载中…
             </div>
           )}
           {!hasMore && tasks.length > 0 && !loadingMore && (
-            <div style={{ textAlign: "center", padding: 14, fontSize: 12, color: "#ccc" }}>没有更多了</div>
+            <div style={{ textAlign: "center", padding: 14, fontSize: 12, color: "var(--text-5)" }}>没有更多了</div>
           )}
         </div>
       </Modal>
@@ -269,7 +269,7 @@ export default function VideoLibraryModal(props: { open: boolean; onClose: () =>
       {menu && (
         <>
           <div onClick={() => setMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMenu(null); }} style={{ position: "fixed", inset: 0, zIndex: 1200 }} />
-          <div style={{ position: "fixed", top: menu.y, left: menu.x, zIndex: 1201, minWidth: 100, background: "#fff", border: "1px solid #eee", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.16)", overflow: "hidden" }}>
+          <div style={{ position: "fixed", top: menu.y, left: menu.x, zIndex: 1201, minWidth: 100, background: "var(--bg-card)", border: "1px solid var(--border-2)", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.16)", overflow: "hidden" }}>
             <div onClick={() => void delOne(menu.id)} style={{ padding: "8px 14px", fontSize: 13, color: "#ff4d4f", cursor: "pointer" }}>删除</div>
           </div>
         </>
@@ -288,7 +288,7 @@ export default function VideoLibraryModal(props: { open: boolean; onClose: () =>
         {player && (
           <>
             <video src={player.videoUrl || undefined} controls autoPlay playsInline style={{ width: "100%", maxHeight: "70vh", borderRadius: 10, background: "#000", display: "block" }} />
-            <div style={{ marginTop: 10, fontSize: 12, color: "#888", lineHeight: 1.6 }}>
+            <div style={{ marginTop: 10, fontSize: 12, color: "var(--text-3)", lineHeight: 1.6 }}>
               {player.prompt ? `提示词：${player.prompt}` : ""}
             </div>
           </>

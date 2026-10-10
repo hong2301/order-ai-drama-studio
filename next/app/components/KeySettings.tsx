@@ -50,7 +50,7 @@ export default function KeySettings(): React.JSX.Element {
         style={{ display: "inline-flex", alignItems: "center" }}
       />
       <Modal open={open} title="API Key 设置" onCancel={() => setOpen(false)} footer={null} width={460} destroyOnHidden>
-        <p style={{ fontSize: 12, color: "#888", margin: "0 0 8px" }}>
+        <p style={{ fontSize: 12, color: "var(--text-3)", margin: "0 0 8px" }}>
           DOUBAO_API_KEY（豆包/火山方舟）。保存后存入数据库并即时生效，对话 / 解析 / 生成 / 探测均使用。
         </p>
         <Input.Password

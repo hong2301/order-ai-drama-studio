@@ -183,10 +183,10 @@ export default function ConsoleModule() {
   };
 
   const rowWrap: React.CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 };
-  const labelStyle: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: "#222", flexShrink: 0, whiteSpace: "nowrap", width: 64 };
+  const labelStyle: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: "var(--text-1)", flexShrink: 0, whiteSpace: "nowrap", width: 64 };
 
   return (
-    <div style={{ flex: 1, minHeight: 0, width: "100%", display: "flex", flexDirection: "column", borderRadius: 12, border: "3px solid #111", background: "#fff", overflow: "hidden" }}>
+    <div style={{ flex: 1, minHeight: 0, width: "100%", display: "flex", flexDirection: "column", borderRadius: 12, border: "3px solid #111", background: "var(--bg-card)", overflow: "hidden" }}>
       {/* 参数区 */}
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 14 }}>
         <div style={rowWrap}>
@@ -224,7 +224,7 @@ export default function ConsoleModule() {
               }}
               style={{ width: 96 }}
             />
-            <div style={{ padding: "0 10px", background: "#f5f5f5", borderLeft: "1px solid #eee", display: "flex", alignItems: "center", fontSize: 12, color: "#666" }}>
+            <div style={{ padding: "0 10px", background: "var(--bg-track)", borderLeft: "1px solid var(--border-2)", display: "flex", alignItems: "center", fontSize: 12, color: "var(--text-2)" }}>
               秒
             </div>
           </Space.Compact>
@@ -232,7 +232,7 @@ export default function ConsoleModule() {
       </div>
 
       {/* 底部工具栏: 模型切换(左) + 开始生成(右) */}
-      <div style={{ borderTop: "1px solid #eee", padding: 10, display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ borderTop: "1px solid var(--border-2)", padding: 10, display: "flex", alignItems: "center", gap: 8 }}>
         <Select
           size="large"
           value={modelKey || undefined}
@@ -244,7 +244,7 @@ export default function ConsoleModule() {
             <>
               {menu}
               <div
-                style={{ borderTop: "1px solid #f0f0f0", padding: "5px 10px", fontSize: 12, color: "#666", cursor: "pointer" }}
+                style={{ borderTop: "1px solid var(--border-3)", padding: "5px 10px", fontSize: 12, color: "var(--text-2)", cursor: "pointer" }}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => { void loadModels(true); }}
               >
@@ -257,7 +257,7 @@ export default function ConsoleModule() {
             label: (
               <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</span>
-                <span style={{ flexShrink: 0, color: "#888", fontSize: 12 }}>¥{m.pricePerSecond}/秒</span>
+                <span style={{ flexShrink: 0, color: "var(--text-3)", fontSize: 12 }}>¥{m.pricePerSecond}/秒</span>
               </span>
             ),
           }))}

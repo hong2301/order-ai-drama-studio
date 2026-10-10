@@ -130,7 +130,7 @@ export default function ImageGalleryModal(props: {
   };
 
   const cellStyle: React.CSSProperties = { width: 88, display: "flex", flexDirection: "column", gap: 4 };
-  const thumbStyle: React.CSSProperties = { width: 88, height: 88, borderRadius: 8, objectFit: "cover", display: "block", border: "1px solid #eee", background: "#fafafa" };
+  const thumbStyle: React.CSSProperties = { width: 88, height: 88, borderRadius: 8, objectFit: "cover", display: "block", border: "1px solid var(--border-2)", background: "var(--bg-subtle)" };
 
   return (
     <Modal
@@ -141,7 +141,7 @@ export default function ImageGalleryModal(props: {
       destroyOnHidden
       footer={
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ fontSize: 12, color: "#999" }}>
+          <span style={{ fontSize: 12, color: "var(--text-4)" }}>
             已有 {existing.length} 张{removed.length ? ` · 将移除 ${removed.length} 张` : ""}{pending.length ? ` · 待添加 ${pending.length} 张` : ""}
           </span>
           <span style={{ display: "flex", gap: 8 }}>
@@ -159,8 +159,8 @@ export default function ImageGalleryModal(props: {
         beforeUpload={(file) => { addFiles([file as unknown as File]); return false; }}
         style={{ padding: "6px 0", marginBottom: 12 }}
       >
-        <p style={{ margin: 0, fontSize: 13, color: "#666" }}>
-          <InboxOutlined style={{ fontSize: 20, color: "#999", display: "block", marginBottom: 4 }} />
+        <p style={{ margin: 0, fontSize: 13, color: "var(--text-2)" }}>
+          <InboxOutlined style={{ fontSize: 20, color: "var(--text-4)", display: "block", marginBottom: 4 }} />
           点击选择图片，或把图片拖到这里（支持多选）
         </p>
       </Upload.Dragger>
@@ -168,7 +168,7 @@ export default function ImageGalleryModal(props: {
       {/* 待添加(确认后上传入库) */}
       {pending.length > 0 && (
         <div style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 12, color: "#999", marginBottom: 6 }}>待添加（默认名称取文件名，可修改）</div>
+          <div style={{ fontSize: 12, color: "var(--text-4)", marginBottom: 6 }}>待添加（默认名称取文件名，可修改）</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
             {pending.map((p) => (
               <div key={p.key} style={cellStyle}>
@@ -193,9 +193,9 @@ export default function ImageGalleryModal(props: {
       )}
 
       {/* 已有图片: ✕ 仅标记移除(变灰+可撤销), 点「确认」才真正生效 */}
-      <div style={{ fontSize: 12, color: "#999", marginBottom: 6 }}>已有图片（✕ 标记移除，确认后生效）</div>
+      <div style={{ fontSize: 12, color: "var(--text-4)", marginBottom: 6 }}>已有图片（✕ 标记移除，确认后生效）</div>
       {existing.length === 0 && removed.length === 0 ? (
-        <div style={{ fontSize: 12, color: "#ccc", padding: "8px 0" }}>暂无图片</div>
+        <div style={{ fontSize: 12, color: "var(--text-5)", padding: "8px 0" }}>暂无图片</div>
       ) : (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
           {existing.map((img) => (
@@ -227,7 +227,7 @@ export default function ImageGalleryModal(props: {
                   style={{ position: "absolute", top: 4, right: 4, fontSize: 11, color: "#fff", background: "rgba(0,0,0,0.55)", borderRadius: "50%", padding: 3, cursor: "pointer", zIndex: 2 }}
                 />
               </div>
-              <div style={{ fontSize: 11, color: "#999", textAlign: "center" }}>将移除</div>
+              <div style={{ fontSize: 11, color: "var(--text-4)", textAlign: "center" }}>将移除</div>
             </div>
           ))}
         </div>

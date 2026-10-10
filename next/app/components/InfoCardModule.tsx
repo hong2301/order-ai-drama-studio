@@ -387,11 +387,11 @@ export default function InfoCardModule(props: {
                 key={img.id}
                 src={img.path}
                 alt={img.name}
-                style={{ width: 28, height: 28, borderRadius: 6, objectFit: "cover", border: "1px solid #eee", display: "block" }}
+                style={{ width: 28, height: 28, borderRadius: 6, objectFit: "cover", border: "1px solid var(--border-2)", display: "block" }}
               />
             ))}
-            {imgs.length > 3 && <span style={{ fontSize: 11, color: "#999" }}>+{imgs.length - 3}</span>}
-            {imgs.length === 0 && <span style={{ fontSize: 15, color: "#ccc", lineHeight: "28px" }}>＋</span>}
+            {imgs.length > 3 && <span style={{ fontSize: 11, color: "var(--text-4)" }}>+{imgs.length - 3}</span>}
+            {imgs.length === 0 && <span style={{ fontSize: 15, color: "var(--text-5)", lineHeight: "28px" }}>＋</span>}
           </div>
         );
       },
@@ -400,7 +400,7 @@ export default function InfoCardModule(props: {
       ? [{
           title: identityLabel, dataIndex: "identity", key: "identity", width: 110,
           render: (v: string[], rec) => {
-            if (!Array.isArray(v) || !v.length) return <span style={{ fontSize: 12, color: "#ccc" }}>—</span>;
+            if (!Array.isArray(v) || !v.length) return <span style={{ fontSize: 12, color: "var(--text-5)" }}>—</span>;
             // 下拉选择器: 选中的身份(默认)存库并放到数组首位
             return (
               <div onClick={(e) => e.stopPropagation()}>
@@ -427,7 +427,7 @@ export default function InfoCardModule(props: {
                     <>
                       {menu}
                       <div
-                        style={{ borderTop: "1px solid #f0f0f0", padding: "4px 6px" }}
+                        style={{ borderTop: "1px solid var(--border-3)", padding: "4px 6px" }}
                         onMouseDown={(e) => e.preventDefault()}
                       >
                         {idAdding === rec.id ? (
@@ -443,7 +443,7 @@ export default function InfoCardModule(props: {
                           <div
                             className="conv-menu-item"
                             onClick={() => { setIdAdding(rec.id); setNewIdText(""); }}
-                            style={{ fontSize: 12, color: "#666", cursor: "pointer", padding: "3px 4px", borderRadius: 4 }}
+                            style={{ fontSize: 12, color: "var(--text-2)", cursor: "pointer", padding: "3px 4px", borderRadius: 4 }}
                           >
                             ＋ 新增身份
                           </div>
@@ -465,7 +465,7 @@ export default function InfoCardModule(props: {
           <Tooltip title={v || "点击编辑"} placement="leftTop">
             <span
               onClick={(e) => { e.stopPropagation(); setEditPrompt({ open: true, id: rec.id, value: v || "" }); }}
-              style={{ fontSize: 12, color: v ? "#888" : "#ccc", cursor: "text" }}
+              style={{ fontSize: 12, color: v ? "var(--text-3)" : "var(--text-5)", cursor: "text" }}
             >
               {v || "—"}
             </span>
@@ -477,25 +477,25 @@ export default function InfoCardModule(props: {
 
   return (
     <div
-      style={{ flex: 1, minHeight: 0, width: "100%", display: "flex", flexDirection: "column", borderRadius: 12, border: "1px solid #e5e5e5", background: "#fff", overflow: "hidden" }}
+      style={{ flex: 1, minHeight: 0, width: "100%", display: "flex", flexDirection: "column", borderRadius: 12, border: "1px solid var(--border-1)", background: "var(--bg-card)", overflow: "hidden" }}
       onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
       onDragLeave={() => setDragging(false)}
       onDrop={handleDrop}
     >
       {/* 拖拽悬停高亮遮罩 */}
       {dragging && (
-        <div style={{ position: "absolute", inset: 0, zIndex: 40, background: "rgba(0,0,0,0.06)", border: "2px dashed #000", borderRadius: 12, pointerEvents: "none", display: "flex", alignItems: "center", justifyContent: "center", color: "#888", fontSize: 14 }}>
+        <div style={{ position: "absolute", inset: 0, zIndex: 40, background: "rgba(0,0,0,0.06)", border: "2px dashed #000", borderRadius: 12, pointerEvents: "none", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-3)", fontSize: 14 }}>
           松开添加文件夹（自动识别并导入）
         </div>
       )}
       {/* 模块标题行: 标题 + 搜索/批量删除/新增(全在右侧) */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderBottom: "1px solid #eee" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderBottom: "1px solid var(--border-2)" }}>
         <span style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }}>{title}</span>
-        {importing && <span style={{ fontSize: 12, color: "#888", whiteSpace: "nowrap" }}>导入中…</span>}
+        {importing && <span style={{ fontSize: 12, color: "var(--text-3)", whiteSpace: "nowrap" }}>导入中…</span>}
         <div style={{ flex: 1 }} />
         <Input
           placeholder="搜索名称"
-          prefix={<SearchOutlined style={{ color: "#bbb" }} />}
+          prefix={<SearchOutlined style={{ color: "var(--text-5)" }} />}
           allowClear
           size="small"
           style={{ width: 110 }}
@@ -541,7 +541,7 @@ export default function InfoCardModule(props: {
             dataSource={items}
             columns={columns}
             pagination={false}
-            locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={<span style={{ fontSize: 12, color: "#bbb" }}>暂无{title}</span>} style={{ margin: "6px 0", padding: 0 }} /> }}
+            locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={<span style={{ fontSize: 12, color: "var(--text-5)" }}>暂无{title}</span>} style={{ margin: "6px 0", padding: 0 }} /> }}
             onRow={(rec) => ({
               onContextMenu: (e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, id: rec.id }); },
               onClick: () => toggleSelect(rec.id),
@@ -550,15 +550,15 @@ export default function InfoCardModule(props: {
             rowSelection={{ selectedRowKeys: selected, onChange: (keys) => { setSelected(keys as number[]); syncScript(keys as number[]); } }}
           />
         </ConfigProvider>
-        {loadingMore && <div style={{ textAlign: "center", padding: 8, fontSize: 12, color: "#bbb" }}>加载中…</div>}
-        {!hasMore && items.length > 0 && <div style={{ textAlign: "center", padding: 8, fontSize: 12, color: "#ccc" }}>没有更多了</div>}
+        {loadingMore && <div style={{ textAlign: "center", padding: 8, fontSize: 12, color: "var(--text-5)" }}>加载中…</div>}
+        {!hasMore && items.length > 0 && <div style={{ textAlign: "center", padding: 8, fontSize: 12, color: "var(--text-5)" }}>没有更多了</div>}
       </div>
 
       {/* 行右键菜单 */}
       {menu && (
         <>
           <div onClick={() => setMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMenu(null); }} style={{ position: "fixed", inset: 0, zIndex: 30 }} />
-          <div style={{ position: "fixed", top: menu.y, left: menu.x, zIndex: 31, minWidth: 96, background: "#fff", border: "1px solid #eee", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.16)", overflow: "hidden" }}>
+          <div style={{ position: "fixed", top: menu.y, left: menu.x, zIndex: 31, minWidth: 96, background: "var(--bg-card)", border: "1px solid var(--border-2)", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.16)", overflow: "hidden" }}>
             <div className="conv-menu-item" onClick={() => { const id = menu.id; setMenu(null); void delOne(id); }} style={{ padding: "8px 14px", fontSize: 13, color: "#ff4d4f", cursor: "pointer" }}>删除</div>
           </div>
         </>
@@ -647,7 +647,7 @@ export default function InfoCardModule(props: {
                             </div>
                           );
                         })}
-                        <div onClick={() => fileRef.current?.click()} style={{ width: 52, height: 52, borderRadius: 8, border: "1px dashed #ccc", display: "flex", alignItems: "center", justifyContent: "center", color: "#999", fontSize: 22, cursor: "pointer", flexShrink: 0 }}>
+                        <div onClick={() => fileRef.current?.click()} style={{ width: 52, height: 52, borderRadius: 8, border: "1px dashed var(--border-4)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-4)", fontSize: 22, cursor: "pointer", flexShrink: 0 }}>
                           +
                         </div>
                         <input
@@ -663,7 +663,7 @@ export default function InfoCardModule(props: {
                           }}
                         />
                       </div>
-                      {pickedImgs.length > 0 && <div style={{ fontSize: 12, color: "#999", marginTop: 4 }}>已选 {pickedImgs.length} 张（✕ 立即删除）</div>}
+                      {pickedImgs.length > 0 && <div style={{ fontSize: 12, color: "var(--text-4)", marginTop: 4 }}>已选 {pickedImgs.length} 张（✕ 立即删除）</div>}
                     </Form.Item>
                   </Form>
                   <Button type="primary" block onClick={() => void save()}>添加</Button>
@@ -694,7 +694,7 @@ AI 会自动识别名称、${identityLabel}标签并整理为提示词入库（�
               label: "上传文件/文件夹",
               children: (
                 <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 6 }}>
-                  <div style={{ border: "1px dashed #ddd", borderRadius: 8, padding: "18px 12px", textAlign: "center", color: "#999", fontSize: 13 }}>
+                  <div style={{ border: "1px dashed var(--border-4)", borderRadius: 8, padding: "18px 12px", textAlign: "center", color: "var(--text-4)", fontSize: 13 }}>
                     支持 txt / md / word(.docx) / 图片
                     <br />（word 内嵌图片会一并提取入库）
                   </div>
@@ -702,7 +702,7 @@ AI 会自动识别名称、${identityLabel}标签并整理为提示词入库（�
                     <Button icon={<PaperClipOutlined />} loading={importing} onClick={() => importFilesRef.current?.click()}>选择文件</Button>
                     <Button icon={<FolderOpenOutlined />} loading={importing} onClick={() => importFolderRef.current?.click()}>选择文件夹</Button>
                   </div>
-                  <div style={{ fontSize: 12, color: "#bbb", textAlign: "center" }}>也可以直接拖到卡片上</div>
+                  <div style={{ fontSize: 12, color: "var(--text-5)", textAlign: "center" }}>也可以直接拖到卡片上</div>
                   <input
                     ref={importFilesRef}
                     type="file"

@@ -362,7 +362,7 @@ export default function ScriptModule() {
                 {v}
               </span>
             </Tooltip>
-            {tag && <span style={{ fontSize: 10, color: "#bbb" }}>{tag}</span>}
+            {tag && <span style={{ fontSize: 10, color: "var(--text-5)" }}>{tag}</span>}
           </div>
         );
       },
@@ -384,7 +384,7 @@ export default function ScriptModule() {
           >
             <span
               onClick={(e) => { e.stopPropagation(); setEditPrompt({ open: true, id: rec.id, value: v || "" }); }}
-              style={{ fontSize: 12, color: text ? "#888" : "#ccc", cursor: "text" }}
+              style={{ fontSize: 12, color: text ? "var(--text-3)" : "var(--text-5)", cursor: "text" }}
             >
               {text || "—"}
             </span>
@@ -396,23 +396,23 @@ export default function ScriptModule() {
 
   return (
     <div
-      style={{ flex: 1, minHeight: 0, width: "100%", display: "flex", flexDirection: "column", borderRadius: 12, border: "1px solid #e5e5e5", background: "#fff", overflow: "hidden" }}
+      style={{ flex: 1, minHeight: 0, width: "100%", display: "flex", flexDirection: "column", borderRadius: 12, border: "1px solid var(--border-1)", background: "var(--bg-card)", overflow: "hidden" }}
       onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
       onDragLeave={() => setDragging(false)}
       onDrop={(e) => void handleDrop(e)}
     >
       {/* 拖拽悬停高亮遮罩 */}
       {dragging && (
-        <div style={{ position: "absolute", inset: 0, zIndex: 40, background: "rgba(0,0,0,0.06)", border: "2px dashed #000", borderRadius: 12, pointerEvents: "none", display: "flex", alignItems: "center", justifyContent: "center", color: "#888", fontSize: 14 }}>
+        <div style={{ position: "absolute", inset: 0, zIndex: 40, background: "rgba(0,0,0,0.06)", border: "2px dashed #000", borderRadius: 12, pointerEvents: "none", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-3)", fontSize: 14 }}>
           松开添加剧本文件
         </div>
       )}
 
       {/* 筛选栏: 名称搜索 + 创建日期范围 */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderBottom: "1px solid #eee" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderBottom: "1px solid var(--border-2)" }}>
         <Input
           placeholder="按名称搜索"
-          prefix={<SearchOutlined style={{ color: "#bbb" }} />}
+          prefix={<SearchOutlined style={{ color: "var(--text-5)" }} />}
           allowClear
           style={{ flex: 1 }}
           onChange={(e) => {
@@ -462,12 +462,12 @@ export default function ScriptModule() {
             }}
           />
         </ConfigProvider>
-        {loadingMore && <div style={{ textAlign: "center", padding: 10, fontSize: 12, color: "#bbb" }}>加载中…</div>}
-        {!hasMore && items.length > 0 && <div style={{ textAlign: "center", padding: 10, fontSize: 12, color: "#ccc" }}>没有更多了</div>}
+        {loadingMore && <div style={{ textAlign: "center", padding: 10, fontSize: 12, color: "var(--text-5)" }}>加载中…</div>}
+        {!hasMore && items.length > 0 && <div style={{ textAlign: "center", padding: 10, fontSize: 12, color: "var(--text-5)" }}>没有更多了</div>}
       </div>
 
       {/* 底部工具栏: 批量删除(常驻, 未选中置灰) + 新增(靠右) */}
-      <div style={{ borderTop: "1px solid #eee", padding: 10, display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ borderTop: "1px solid var(--border-2)", padding: 10, display: "flex", alignItems: "center", gap: 8 }}>
         <Popconfirm
           title={`确认删除选中的剧本“${items.find((i) => i.id === selected[0])?.name || ""}”？`}
           okText="删除" cancelText="取消" okButtonProps={{ danger: true }}
@@ -507,11 +507,11 @@ export default function ScriptModule() {
             onContextMenu={(e) => { e.preventDefault(); setMenu(null); }}
             style={{ position: "fixed", inset: 0, zIndex: 30 }}
           />
-          <div style={{ position: "fixed", top: menu.y, left: menu.x, zIndex: 31, minWidth: 96, background: "#fff", border: "1px solid #eee", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.16)", overflow: "hidden" }}>
+          <div style={{ position: "fixed", top: menu.y, left: menu.x, zIndex: 31, minWidth: 96, background: "var(--bg-card)", border: "1px solid var(--border-2)", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.16)", overflow: "hidden" }}>
             <div
               className="conv-menu-item"
               onClick={() => { const id = menu.id; setMenu(null); void parseOne(id); }}
-              style={{ padding: "8px 14px", fontSize: 13, color: "#111", cursor: "pointer" }}
+              style={{ padding: "8px 14px", fontSize: 13, color: "var(--text-1)", cursor: "pointer" }}
             >
               解析
             </div>
@@ -609,8 +609,8 @@ export default function ScriptModule() {
                   onChange={({ fileList: fl }) => setFileList(fl)}
                   style={{ padding: "6px 0" }}
                 >
-                  <p style={{ fontSize: 14, color: "#888", margin: 0 }}>点击或拖入文件</p>
-                  <p style={{ fontSize: 12, color: "#bbb", margin: "6px 0 0" }}>支持 .txt / .md / .docx（word 图片会一并提取）</p>
+                  <p style={{ fontSize: 14, color: "var(--text-3)", margin: 0 }}>点击或拖入文件</p>
+                  <p style={{ fontSize: 12, color: "var(--text-5)", margin: "6px 0 0" }}>支持 .txt / .md / .docx（word 图片会一并提取）</p>
                 </Upload.Dragger>
               ),
             },

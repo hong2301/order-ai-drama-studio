@@ -18,8 +18,8 @@ function fileIconOf(name: string): { icon: React.ReactNode; color: string } {
   if (["doc", "docx"].includes(ext)) return { icon: <FileWordOutlined />, color: "#2b579a" };
   if (["pdf"].includes(ext)) return { icon: <FilePdfOutlined />, color: "#e5484d" };
   if (["xls", "xlsx", "csv"].includes(ext)) return { icon: <FileTextOutlined />, color: "#217346" };
-  if (["txt", "md", "json", "log"].includes(ext)) return { icon: <FileTextOutlined />, color: "#666" };
-  return { icon: <FileOutlined />, color: "#999" };
+  if (["txt", "md", "json", "log"].includes(ext)) return { icon: <FileTextOutlined />, color: "var(--text-2)" };
+  return { icon: <FileOutlined />, color: "var(--text-4)" };
 }
 const LEGACY_KEY = "aivs:chat:v1"; // 旧单会话历史(迁移用)
 const CONVS_KEY = "aivs:convs:v1"; // 多会话列表(标题/时间/消息)
@@ -361,7 +361,7 @@ export default function ChatModule() {
   const listHeight = TITLE + rows * ROW + NEWBTN;
 
   return (
-    <div style={{ position: "relative", flex: 1, minWidth: 380, display: "flex", flexDirection: "column", borderRadius: 12, border: "1px solid #e5e5e5", background: "#fff", overflow: "hidden" }}>
+    <div style={{ position: "relative", flex: 1, minWidth: 380, display: "flex", flexDirection: "column", borderRadius: 12, border: "1px solid var(--border-1)", background: "var(--bg-card)", overflow: "hidden" }}>
       {/* 左上角浮动层: 会话列表按钮/面板(固定在模块左上角, 不随对话内容滚动) */}
         {/* 点击遮罩: 收起会话列表 */}
         {listOpen && <div onClick={() => setListOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 13, background: "transparent" }} />}
@@ -374,8 +374,8 @@ export default function ChatModule() {
             width: listOpen ? 320 : 36,
             height: listOpen ? listHeight : 36,
             borderRadius: listOpen ? 12 : "50%",
-            background: "#fff",
-            border: "1px solid #e5e5e5",
+            background: "var(--bg-card)",
+            border: "1px solid var(--border-1)",
             boxShadow: listOpen ? "0 4px 20px rgba(0,0,0,0.12)" : "0 1px 2px rgba(0,0,0,0.04)",
             overflow: "hidden",
             display: "flex", flexDirection: "column",
@@ -385,17 +385,17 @@ export default function ChatModule() {
         >
           {/* 收起态: 居中列表图标(展开时淡出; flex 居中避免基线偏移) */}
           <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", opacity: listOpen ? 0 : 1, transition: "opacity .12s", pointerEvents: "none" }}>
-            <UnorderedListOutlined style={{ fontSize: 14, color: "#888", display: "block" }} />
+            <UnorderedListOutlined style={{ fontSize: 14, color: "var(--text-3)", display: "block" }} />
           </span>
           {/* 展开态: 标题 + 会话列表(形变后淡入, 高 3~10 行动态) */}
           <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", opacity: listOpen ? 1 : 0, transition: "opacity .2s .1s" }}>
             {/* 标题栏(固定在顶部) */}
-            <div style={{ flexShrink: 0, height: TITLE, display: "flex", alignItems: "center", padding: "0 12px", fontSize: 12, color: "#999", borderBottom: "1px solid #f5f5f5" }}>
+            <div style={{ flexShrink: 0, height: TITLE, display: "flex", alignItems: "center", padding: "0 12px", fontSize: 12, color: "var(--text-4)", borderBottom: "1px solid var(--border-3)" }}>
               对话列表
             </div>
             <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
               {shownConvs.length === 0 && (
-                <div style={{ padding: 14, fontSize: 12, color: "#bbb", textAlign: "center" }}>暂无对话</div>
+                <div style={{ padding: 14, fontSize: 12, color: "var(--text-5)", textAlign: "center" }}>暂无对话</div>
               )}
               {shownConvs.map((c) => (
                 <div
@@ -403,14 +403,14 @@ export default function ChatModule() {
                   className="conv-item"
                   onClick={() => openConv(c.id)}
                   onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenu({ x: e.clientX, y: e.clientY, id: c.id }); }}
-                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "9px 12px", cursor: "pointer", borderBottom: "1px solid #f7f7f7", flexShrink: 0, background: c.id === convId ? "#f5f5f5" : undefined }}
+                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "9px 12px", cursor: "pointer", borderBottom: "1px solid var(--border-3)", flexShrink: 0, background: c.id === convId ? "var(--bg-track)" : undefined }}
                 >
-                  <span style={{ flex: 1, fontSize: 13, color: "#111", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title || "新对话"}</span>
-                  <span style={{ flexShrink: 0, fontSize: 11, color: "#bbb" }}>{fmtTime(c.updatedAt)}</span>
+                  <span style={{ flex: 1, fontSize: 13, color: "var(--text-1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.title || "新对话"}</span>
+                  <span style={{ flexShrink: 0, fontSize: 11, color: "var(--text-5)" }}>{fmtTime(c.updatedAt)}</span>
                 </div>
               ))}
             </div>
-            <div onClick={newConv} className="conv-new" style={{ flexShrink: 0, height: NEWBTN, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#111", cursor: "pointer", borderTop: "1px solid #f5f5f5", userSelect: "none" }}>
+            <div onClick={newConv} className="conv-new" style={{ flexShrink: 0, height: NEWBTN, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "var(--text-1)", cursor: "pointer", borderTop: "1px solid var(--border-3)", userSelect: "none" }}>
               ＋ 新对话
             </div>
           </div>
@@ -418,7 +418,7 @@ export default function ChatModule() {
       {/* 对话区 */}
       <div ref={listRef} style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "52px 16px 16px", display: "flex", flexDirection: "column", gap: 12 }}>
         {messages.length === 0 && !sending && (
-          <div style={{ color: "#aaa", fontSize: 13, textAlign: "center", marginTop: 48 }}>
+          <div style={{ color: "var(--text-5)", fontSize: 13, textAlign: "center", marginTop: 48 }}>
             <div style={{ fontSize: 30, marginBottom: 10 }}>🎬</div>
             你好，我是 AI 视频工坊助手
             <br />
@@ -431,8 +431,8 @@ export default function ChatModule() {
               style={{
                 maxWidth: "85%", padding: "8px 12px", borderRadius: 12,
                 fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word",
-                background: m.role === "user" ? "#111" : "#f2f2f2",
-                color: m.role === "user" ? "#fff" : "#111",
+                background: m.role === "user" ? "var(--bg-bubble-me)" : "var(--bg-bubble-other)",
+                color: m.role === "user" ? "var(--text-bubble-me)" : "var(--text-bubble-other)",
                 borderTopRightRadius: m.role === "user" ? 4 : 12,
                 borderTopLeftRadius: m.role === "user" ? 12 : 4,
               }}
@@ -458,7 +458,7 @@ export default function ChatModule() {
                         key={u}
                         onClick={() => window.open(u, "_blank")}
                         title={`打开 ${fname}`}
-                        style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px", borderRadius: 8, background: "rgba(0,0,0,0.06)", cursor: "pointer", fontSize: 12, color: "#555", maxWidth: 170 }}
+                        style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px", borderRadius: 8, background: "rgba(0,0,0,0.06)", cursor: "pointer", fontSize: 12, color: "var(--text-2)", maxWidth: 170 }}
                       >
                         <span style={{ fontSize: 15, lineHeight: 1, color: fi.color, flexShrink: 0 }}>{fi.icon}</span>
                         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fname}</span>
@@ -470,11 +470,11 @@ export default function ChatModule() {
             </div>
           </div>
         ))}
-        {sending && <div style={{ color: "#999", fontSize: 12, paddingLeft: 2 }}>正在思考…</div>}
+        {sending && <div style={{ color: "var(--text-4)", fontSize: 12, paddingLeft: 2 }}>正在思考…</div>}
       </div>
 
       {/* 底部输入区(模块整体的一部分, 不再套独立卡片边框 —— 一体感) */}
-      <div className="chat-input-wrap" style={{ borderTop: "1px solid #eee", padding: 10, background: "#fff" }}>
+      <div className="chat-input-wrap" style={{ borderTop: "1px solid var(--border-2)", padding: 10, background: "var(--bg-card)" }}>
           {/* 附件缩略展示 */}
           {(atts.length > 0 || uploading > 0) && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, paddingBottom: 8 }}>
@@ -489,14 +489,14 @@ export default function ChatModule() {
                       if (isImg) setPreview(a);
                       else window.open(a.url, "_blank");
                     }}
-                    style={{ position: "relative", width: 56, height: 44, borderRadius: 8, border: "1px solid #eee", flexShrink: 0, cursor: "pointer" }}
+                    style={{ position: "relative", width: 56, height: 44, borderRadius: 8, border: "1px solid var(--border-2)", flexShrink: 0, cursor: "pointer" }}
                   >
                     {isImg ? (
                       <img src={a.url} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", borderRadius: 7 }} />
                     ) : (
-                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 3, background: "#fafafa", padding: "3px 4px" }}>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 3, background: "var(--bg-subtle)", padding: "3px 4px" }}>
                         <span style={{ fontSize: 16, lineHeight: 1, color: fileIconOf(a.name).color }}>{fileIconOf(a.name).icon}</span>
-                        <span style={{ fontSize: 9, lineHeight: 1.1, maxWidth: 52, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#666" }}>{a.name}</span>
+                        <span style={{ fontSize: 9, lineHeight: 1.1, maxWidth: 52, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-2)" }}>{a.name}</span>
                       </div>
                     )}
                     <span
@@ -516,7 +516,7 @@ export default function ChatModule() {
                 );
               })}
               {uploading > 0 && (
-                <div style={{ width: 44, height: 44, borderRadius: 8, border: "1px dashed #ccc", display: "flex", alignItems: "center", justifyContent: "center", color: "#bbb", fontSize: 11 }}>
+                <div style={{ width: 44, height: 44, borderRadius: 8, border: "1px dashed var(--border-4)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-5)", fontSize: 11 }}>
                   {uploading}
                 </div>
               )}
@@ -548,15 +548,15 @@ export default function ChatModule() {
               onOpenChange={(o) => setModelOpen(o)}
               trigger={["click"]}
               popupRender={() => (
-                <div style={{ width: 300, background: "#fff", borderRadius: 10, border: "1px solid #e5e5e5", boxShadow: "0 4px 20px rgba(0,0,0,0.14)", overflow: "hidden" }}>
+                <div style={{ width: 300, background: "var(--bg-card)", borderRadius: 10, border: "1px solid var(--border-1)", boxShadow: "0 4px 20px rgba(0,0,0,0.14)", overflow: "hidden" }}>
                   {/* 模型列表(服务端已适配为可看图/视频/文本的对话模型) */}
                   <div style={{ maxHeight: 260, overflowY: "auto", padding: 4 }}>
                     {loadingModels ? (
-                      <div style={{ padding: 18, textAlign: "center", color: "#999", fontSize: 12 }}>
+                      <div style={{ padding: 18, textAlign: "center", color: "var(--text-4)", fontSize: 12 }}>
                         <Spin size="small" style={{ marginRight: 6 }} />加载中…
                       </div>
                     ) : arkModels.length === 0 ? (
-                      <div style={{ padding: 16, textAlign: "center", color: "#bbb", fontSize: 12 }}>暂无已适配模型</div>
+                      <div style={{ padding: 16, textAlign: "center", color: "var(--text-5)", fontSize: 12 }}>暂无已适配模型</div>
                     ) : (
                       arkModels.map((m) => (
                         <div
@@ -565,18 +565,18 @@ export default function ChatModule() {
                           style={{
                             display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8,
                             padding: "7px 10px", fontSize: 13, cursor: "pointer", borderRadius: 6,
-                            color: m.id === chatModel ? "#111" : "#333", background: m.id === chatModel ? "#f5f5f5" : undefined,
+                            color: m.id === chatModel ? "var(--text-1)" : "var(--text-2)", background: m.id === chatModel ? "var(--bg-track)" : undefined,
                           }}
                         >
                           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{m.label}</span>
-                          <span style={{ fontSize: 11, color: "#999", flexShrink: 0 }}>¥{m.price}</span>
+                          <span style={{ fontSize: 11, color: "var(--text-4)", flexShrink: 0 }}>¥{m.price}</span>
                         </div>
                       ))
                     )}
                   </div>
                   {/* 手动重新检测(强制重探方舟已开通模型) */}
                   <div
-                    style={{ borderTop: "1px solid #f0f0f0", padding: "6px 10px", fontSize: 12, color: "#666", cursor: "pointer" }}
+                    style={{ borderTop: "1px solid var(--border-3)", padding: "6px 10px", fontSize: 12, color: "var(--text-2)", cursor: "pointer" }}
                     onClick={() => { void loadArkModels(true); }}
                   >
                     🔄 重新检测对话模型
@@ -630,7 +630,7 @@ export default function ChatModule() {
             onContextMenu={(e) => { e.preventDefault(); setMenu(null); }}
             style={{ position: "fixed", inset: 0, zIndex: 30 }}
           />
-          <div style={{ position: "fixed", top: menu.y, left: menu.x, zIndex: 31, minWidth: 96, background: "#fff", border: "1px solid #eee", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.16)", overflow: "hidden" }}>
+          <div style={{ position: "fixed", top: menu.y, left: menu.x, zIndex: 31, minWidth: 96, background: "var(--bg-card)", border: "1px solid var(--border-2)", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.16)", overflow: "hidden" }}>
             <div className="conv-menu-item" onClick={() => delConv(menu.id)} style={{ padding: "8px 14px", fontSize: 13, color: "#ff4d4f", cursor: "pointer" }}>
               删除
             </div>
