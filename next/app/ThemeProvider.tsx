@@ -1,28 +1,43 @@
 "use client";
 
-// 主题(深浅色)管理: html[data-theme] 驱动 CSS 变量 + antd darkAlgorithm
-// 业务组件通过 useThemeMode() 读/切换(顶栏的「浅色/深色」按钮)
+// 全局偏好: 深浅色 + 剧本形态(短/长)
+// 值存 cookie(不是 localStorage) —— 服务端 layout 能读到, 首帧就渲染成正确主题,
+// 既没有"先浅后深"的闪烁, 也不会 hydration mismatch。
 import { App as AntApp, ConfigProvider, theme as antdTheme } from "antd";
 import zhCN from "antd/locale/zh_CN";
 import { createContext, useContext, useEffect, useState } from "react";
 
-type Mode = "light" | "dark";
+export type ThemeMode = "light" | "dark";
+export type ScriptMode = "short" | "long";
 
-const ThemeModeContext = createContext<{ mode: Mode; setMode: (m: Mode) => void }>({
-  mode: "light",
-  setMode: () => { /* 由 Provider 注入 */ },
+interface Prefs {
+  themeMode: ThemeMode;
+  setThemeMode: (m: ThemeMode) => void;
+  scriptMode: ScriptMode;
+  setScriptMode: (m: ScriptMode) => void;
+}
+
+const PrefsContext = createContext<Prefs>({
+  themeMode: "light",
+  setThemeMode: () => { /* Provider 注入 */ },
+  scriptMode: "short",
+  setScriptMode: () => { /* Provider 注入 */ },
 });
 
-/** 读取/切换深浅色(必须在 ThemeProvider 内使用) */
-export function useThemeMode(): { mode: Mode; setMode: (m: Mode) => void } {
-  return useContext(ThemeModeContext);
+/** 读全局偏好(必须在 ThemeProvider 内使用) */
+export function usePrefs(): Prefs {
+  return useContext(PrefsContext);
+}
+
+/** 写 cookie(一年有效, 整站路径) */
+function setCookie(key: string, value: string): void {
+  try { document.cookie = `${key}=${value}; path=/; max-age=31536000; SameSite=Lax`; } catch { /* ignore */ }
 }
 
 /**
  * 主题 token。
- * ⚠ 不要在这里写 colorBgContainer / colorText / colorBorder / colorBgLayout 这类颜色 ——
+ * ⚠ 不要在这里写 colorBgContainer / colorText / colorBorder 这类颜色 ——
  *   显式 token 会覆盖 algorithm(darkAlgorithm), 导致表格/弹窗/卡片仍是白的。
- *   颜色一律交给算法决定, 这里只放与明暗无关的(圆角/字号) + 分模式的主色/组件定制。
  */
 const radiusToken = { borderRadius: 10 };
 
@@ -41,9 +56,9 @@ const lightTheme = {
 };
 
 /**
- * 深色: 主色仍用**深色系**(不是反转为白) —— 用比背景亮一档的深灰当主色,
- * 与整体黑白灰层次一致(背景 #0f0f0f → 卡片 #1a1a1a → 主按钮/选中 #333333)。
- * colorTextLightSolid 显式给白: 否则深色算法会按“主色是亮色”给黑字, 在深灰按钮上看不见。
+ * 深色: 主色仍用**深色系**(不是反转为白) —— 比背景亮一档的深灰,
+ * 与整体层次一致(背景 #0f0f0f → 卡片 #1a1a1a → 主按钮/选中 #333333)。
+ * colorTextLightSolid 显式给白: 否则深色算法按"主色是亮色"给黑字, 深灰按钮上看不见。
  */
 const darkTheme = {
   token: {
@@ -60,32 +75,46 @@ const darkTheme = {
   },
 };
 
-export default function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [mode, setMode] = useState<Mode>("light");
+export default function ThemeProvider({
+  children,
+  initialTheme = "light",
+  initialScriptMode = "short",
+}: {
+  children: React.ReactNode;
+  /** 由服务端 layout 从 cookie 读出并传入 —— 保证首帧与服务端一致 */
+  initialTheme?: ThemeMode;
+  initialScriptMode?: ScriptMode;
+}) {
+  const [themeMode, setThemeModeState] = useState<ThemeMode>(initialTheme);
+  const [scriptMode, setScriptModeState] = useState<ScriptMode>(initialScriptMode);
 
-  // 首次挂载后读本地偏好(不在渲染期读 localStorage, 避免 SSR 不一致)
-  useEffect(() => {
-    const saved = localStorage.getItem("theme-mode");
-    if (saved === "dark" || saved === "light") setMode(saved);
-  }, []);
+  const setThemeMode = (m: ThemeMode): void => {
+    setThemeModeState(m);
+    setCookie("theme-mode", m);
+    document.documentElement.setAttribute("data-theme", m);
+  };
 
-  // 应用主题: CSS 变量由 html[data-theme] 驱动; antd 走 darkAlgorithm
+  const setScriptMode = (m: ScriptMode): void => {
+    setScriptModeState(m);
+    setCookie("script-mode", m);
+  };
+
+  // 首帧同步一次 html[data-theme](服务端已写在 html 上, 这里兜底)
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", mode);
-    localStorage.setItem("theme-mode", mode);
-  }, [mode]);
+    document.documentElement.setAttribute("data-theme", themeMode);
+  }, [themeMode]);
 
   return (
-    <ThemeModeContext.Provider value={{ mode, setMode }}>
+    <PrefsContext.Provider value={{ themeMode, setThemeMode, scriptMode, setScriptMode }}>
       <ConfigProvider
         locale={zhCN}
         theme={{
-          ...(mode === "dark" ? darkTheme : lightTheme),
-          algorithm: mode === "dark" ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
+          ...(themeMode === "dark" ? darkTheme : lightTheme),
+          algorithm: themeMode === "dark" ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
         }}
       >
         <AntApp>{children}</AntApp>
       </ConfigProvider>
-    </ThemeModeContext.Provider>
+    </PrefsContext.Provider>
   );
 }
