@@ -48,32 +48,20 @@ function rowToShot(r: Record<string, unknown>): ShotSeg {
 }
 
 /**
- * 把一个剧本的分镜切成若干段: 顺序累加时长, 达到上限(或单个分镜本身就超上限)就收一段。
- * 例(上限15): 4+4+5=13 → 第1段;  6+5=11 → 第2段;  4... → 第3段
+ * 分段: 现在**一个分镜 = 一段**(不再把几个分镜合起来)。
+ * 原因: 合起来生成时, 想调其中一个分镜就得整段重跑; 分镜级粒度才方便单独调/单独重生成。
+ * 单个分镜超过模型上限时截到上限并在备注里提示。
  */
 export function partitionSegments(shots: ShotSeg[], maxSec = SEGMENT_MAX_SEC): Segment[] {
-  const segs: Segment[] = [];
-  let cur: ShotSeg[] = [];
-  let curDur = 0;
-  const flush = (): void => {
-    if (!cur.length) return;
-    segs.push({ index: segs.length + 1, shots: cur, duration: curDur, prompt: buildSegmentPrompt(segs.length + 1, cur, curDur) });
-    cur = [];
-    curDur = 0;
-  };
-  for (const s of shots) {
-    // 单个分镜就超过上限: 自己独占一段(提交时由 provider 按接口上限自动下调)
-    if (s.duration >= maxSec) {
-      flush();
-      cur = [s]; curDur = s.duration; flush();
-      continue;
-    }
-    if (curDur + s.duration > maxSec) flush();
-    cur.push(s);
-    curDur += s.duration;
-  }
-  flush();
-  return segs;
+  return shots.map((s, i) => {
+    const dur = s.duration > maxSec ? maxSec : s.duration;
+    return {
+      index: i + 1,
+      shots: [{ ...s, duration: dur }],
+      duration: dur,
+      prompt: buildSegmentPrompt(i + 1, [{ ...s, duration: dur }], dur),
+    };
+  });
 }
 
 /** 段内多个分镜 → 一段连续提示词(模型在一个视频里按顺序演完这几个镜头) */
