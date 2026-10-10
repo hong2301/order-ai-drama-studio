@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Button } from "antd";
+import { Button, Segmented } from "antd";
 import { ReloadOutlined } from "@ant-design/icons";
 import ChatModule from "./components/ChatModule";
 import ScriptModule from "./components/ScriptModule";
@@ -11,6 +11,8 @@ import KeySettings from "./components/KeySettings";
 
 export default function Home() {
   const [version, setVersion] = useState("");
+  /** 剧本形态: 短剧本(现有工作台) / 长剧本(待建设) */
+  const [mode, setMode] = useState<"short" | "long">("short");
 
   // 版本号(logo 栏标题右侧显示)
   useEffect(() => {
@@ -34,6 +36,16 @@ export default function Home() {
         <span style={{ fontWeight: 700, fontSize: 16, letterSpacing: 0.5 }}>AI视频工坊</span>
         {version && <span style={{ fontSize: 11, color: "#999", marginTop: 3 }}>v{version}</span>}
         <div style={{ flex: 1 }} />
+        {/* 剧本形态切换: 短剧本(现有工作台) / 长剧本(待建设); 位于刷新按钮左侧
+            不设 size → 用 antd 默认尺寸(controlHeight=32), 与右侧刷新按钮等高 */}
+        <Segmented
+          value={mode}
+          onChange={(v) => setMode(v as "short" | "long")}
+          options={[
+            { label: "短剧本", value: "short" },
+            { label: "长剧本", value: "long" },
+          ]}
+        />
         {/* 刷新按钮, API Key 设置在其右边 */}
         <Button
           shape="default"
@@ -45,6 +57,12 @@ export default function Home() {
       </header>
 
       {/* body: 模块从左到右排列, 自动填充剩余高度(无 tail) */}
+      {/* body: 短剧本(现有三列工作台) / 长剧本(待建设, 先留空) */}
+      {mode === "long" ? (
+        <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#c8c8c8", fontSize: 13, letterSpacing: 1 }}>
+          长剧本（待建设）
+        </div>
+      ) : (
       <div style={{ flex: 1, minHeight: 0, padding: 16, display: "flex", gap: 16, alignItems: "stretch", overflowX: "auto" }}>
         <ChatModule />
         {/* 剧本(上, 6) + 控制台(下, 4) 同列: 弹性宽度(窗口拉大跟着变宽), 保底 420 */}
@@ -64,6 +82,7 @@ export default function Home() {
         </div>
         {/* 后续模块在此从左到右追加 */}
       </div>
+      )}
     </div>
   );
 }

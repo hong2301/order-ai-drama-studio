@@ -28,6 +28,16 @@ const blackWhiteTheme = {
     colorBorderSecondary: "#eeeeee",
     borderRadius: 10,
   },
+  components: {
+    // 剧本形态切换开关: 选中项黑底白字, 与黑白灰极简风格一致
+    Segmented: {
+      trackBg: "#f2f2f2",
+      itemColor: "#666666",
+      itemHoverColor: "#111111",
+      itemSelectedBg: "#111111",
+      itemSelectedColor: "#ffffff",
+    },
+  },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

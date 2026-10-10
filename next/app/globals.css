@@ -54,6 +54,14 @@ body {
   color: #fff !important;
 }
 
+/* 顶部「短剧本/长剧本」切换: 选中项黑底要圆角
+   (antd 在 small 尺寸下用的是更小的圆角 token, 看着像直角; 选中背景是 ::after 伪元素,
+    它用 border-radius: inherit 继承 item 的圆角, 所以改 item 就够) */
+.ant-segmented .ant-segmented-item-selected,
+.ant-segmented .ant-segmented-thumb {
+  border-radius: 6px !important;
+}
+
 /* 可点击选中的表格(剧本库/人物/场景/产品): 仅 hover 到真实数据行时手型 */
 .clickable-table .ant-table-tbody > tr:not(.ant-table-placeholder):hover > td {
   cursor: pointer;
