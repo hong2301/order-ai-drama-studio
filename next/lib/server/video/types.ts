@@ -49,6 +49,12 @@ export interface VideoSubmitRequest {
   imageUrl?: string | null;
   /** 参考图(文生 t2v 锚定形象: 人物/场景/产品), 与 imageUrl 二选一使用 */
   referenceImages?: { name?: string; url: string }[];
+  /**
+   * 参考音频（**音色参考**）。**长剧本用, 短剧本暂不传**。
+   * 方舟要求: content 里 type=audio_url 且 role=reference_audio,
+   * 且音频**不能是唯一的参考输入**(需搭配图片/视频)。
+   */
+  referenceAudios?: { name?: string; url: string }[];
   /** 尾帧(仅 first_last_frame 模式) */
   lastFrameUrl?: string | null;
   /** 分辨率(需模型 presets.resolutions 支持) */

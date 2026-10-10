@@ -144,6 +144,8 @@ export async function createVideoTask(input: {
   imageUrl?: string | null;
   /** 参考图(文生锚定人物/场景/产品形象) */
   referenceImages?: { name?: string; url: string }[];
+  /** 参考音频(音色参考) —— **长剧本用, 短剧本不传**; 需与参考图/首帧搭配, 不能单独传 */
+  referenceAudios?: { name?: string; url: string }[];
   resolution?: string;
   ratio?: string;
   duration?: number;
@@ -191,6 +193,7 @@ export async function createVideoTask(input: {
     prompt: input.prompt,
     imageUrl: input.imageUrl || null,
     referenceImages,
+    referenceAudios: input.referenceAudios,
     resolution: input.resolution,
     ratio: input.ratio,
     duration,

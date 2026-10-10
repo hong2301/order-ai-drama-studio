@@ -20,7 +20,11 @@ function toWireUrl(url: string): string {
   const file = path.join(dataDir(), "uploads", m[1], m[2]);
   if (!fs.existsSync(file)) throw new Error(`附件不存在: ${url}`);
   const ext = path.extname(file).slice(1).toLowerCase();
-  const mime: Record<string, string> = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp" };
+  const mime: Record<string, string> = {
+    jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp",
+    // 音频(参考音色, 长剧本用)
+    mp3: "audio/mpeg", wav: "audio/wav", m4a: "audio/mp4", aac: "audio/aac", ogg: "audio/ogg",
+  };
   const type = mime[ext] || "application/octet-stream";
   return `data:${type};base64,${fs.readFileSync(file).toString("base64")}`;
 }
@@ -120,6 +124,12 @@ export const doubaoVideo: VideoProvider = {
     // 旧实现写在顶层 body.reference —— 方舟无此字段, 会被静默忽略(任务照样成功但图片完全没参与生成)。
     for (const r of req.referenceImages || []) {
       content.push({ type: "image_url", image_url: { url: toWireUrl(r.url) }, role: "reference_image" });
+    }
+    // 参考音频(音色参考, role=reference_audio): 长剧本用。
+    // 方舟要求 type=audio_url + role=reference_audio, 且音频不能是唯一参考输入(需搭配图/视频)。
+    // 短剧本不传 referenceAudios 时此循环自然跳过, 行为与之前完全一致。
+    for (const a of req.referenceAudios || []) {
+      content.push({ type: "audio_url", audio_url: { url: toWireUrl(a.url) }, role: "reference_audio" });
     }
     if (!content.length) throw new Error("至少需要提示词或图片");
 
