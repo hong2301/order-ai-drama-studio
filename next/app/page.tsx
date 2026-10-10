@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Button, Segmented } from "antd";
+import { useThemeMode } from "./ThemeProvider";
 import { ReloadOutlined } from "@ant-design/icons";
 import ChatModule from "./components/ChatModule";
 import ScriptModule from "./components/ScriptModule";
@@ -13,6 +14,8 @@ export default function Home() {
   const [version, setVersion] = useState("");
   /** 剧本形态: 短剧本(现有工作台) / 长剧本(待建设) */
   const [mode, setMode] = useState<"short" | "long">("short");
+  /** 深浅色(全局, 由 ThemeProvider 驱动) */
+  const { mode: themeMode, setMode: setThemeMode } = useThemeMode();
 
   // 版本号(logo 栏标题右侧显示)
   useEffect(() => {
@@ -23,18 +26,18 @@ export default function Home() {
   }, []);
 
   return (
-    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "#f7f7f7" }}>
+    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "var(--bg-page)" }}>
       {/* head: logo 栏 */}
       <header
         style={{
           display: "flex", alignItems: "center", gap: 10,
-          padding: "12px 20px", background: "#fff",
-          borderBottom: "1px solid #e5e5e5", flexShrink: 0,
+          padding: "12px 20px", background: "var(--bg-card)",
+          borderBottom: "1px solid var(--border-1)", flexShrink: 0,
         }}
       >
         <img src="/icon.svg" alt="logo" style={{ width: 30, height: 30, borderRadius: 6 }} />
         <span style={{ fontWeight: 700, fontSize: 16, letterSpacing: 0.5 }}>AI视频工坊</span>
-        {version && <span style={{ fontSize: 11, color: "#999", marginTop: 3 }}>v{version}</span>}
+        {version && <span style={{ fontSize: 11, color: "var(--text-4)", marginTop: 3 }}>v{version}</span>}
         <div style={{ flex: 1 }} />
         {/* 剧本形态切换: 短剧本(现有工作台) / 长剧本(待建设); 位于刷新按钮左侧
             不设 size → 用 antd 默认尺寸(controlHeight=32), 与右侧刷新按钮等高 */}
@@ -47,6 +50,15 @@ export default function Home() {
           ]}
         />
         {/* 刷新按钮, API Key 设置在其右边 */}
+        {/* 深浅色切换(位于刷新按钮左侧) */}
+        <Segmented
+          value={themeMode}
+          onChange={(v) => setThemeMode(v as "light" | "dark")}
+          options={[
+            { label: "浅色", value: "light" },
+            { label: "深色", value: "dark" },
+          ]}
+        />
         <Button
           shape="default"
           icon={<ReloadOutlined />}
@@ -59,7 +71,7 @@ export default function Home() {
       {/* body: 模块从左到右排列, 自动填充剩余高度(无 tail) */}
       {/* body: 短剧本(现有三列工作台) / 长剧本(待建设, 先留空) */}
       {mode === "long" ? (
-        <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "#c8c8c8", fontSize: 13, letterSpacing: 1 }}>
+        <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-5)", fontSize: 13, letterSpacing: 1 }}>
           长剧本（待建设）
         </div>
       ) : (
