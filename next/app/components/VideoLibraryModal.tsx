@@ -27,8 +27,9 @@ function fmtDate(iso: string): string {
   } catch { return iso; }
 }
 
-export default function VideoLibraryModal(props: { open: boolean; onClose: () => void }): React.JSX.Element {
-  const { open, onClose } = props;
+/** kind: short=短剧本(默认) / long=长剧本 —— 视频库按剧本形态隔离 */
+export default function VideoLibraryModal(props: { open: boolean; onClose: () => void; kind?: "short" | "long" }): React.JSX.Element {
+  const { open, onClose, kind = "short" } = props;
   const { message } = AntApp.useApp();
   const [tasks, setTasks] = useState<VideoTask[]>([]);
   const [loading, setLoading] = useState(false);
@@ -44,7 +45,7 @@ export default function VideoLibraryModal(props: { open: boolean; onClose: () =>
   // 拉一页(完成的); append=true 追加, 否则覆盖
   const fetchPage = useCallback(async (offset: number, append: boolean): Promise<void> => {
     try {
-      const r = await fetch(`/api/video/tasks?limit=${PAGE}&offset=${offset}`);
+      const r = await fetch(`/api/video/tasks?limit=${PAGE}&offset=${offset}&kind=${kind}`);
       const j = (await r.json()) as { ok?: boolean; tasks?: VideoTask[]; detail?: string };
       if (!j.ok) throw new Error(j.detail);
       // 保留全部任务(含 failed/cancelled, 视频库要显示失败与原因); hasMore 按全部算

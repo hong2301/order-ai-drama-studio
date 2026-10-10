@@ -62,19 +62,23 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   // 3) 入库: name = 文件名去扩展名
   const name = (file.name.replace(/\.\w+$/, "") || "未命名剧本").trim();
+  const kind = String(form.get("kind") || "short").trim() || "short";   // short=短剧本 / long=长剧本
   const now = new Date().toISOString();
   const db = await getDb();
   db.run(
-    "INSERT INTO scripts(name, file_path, content, created_at, updated_at) VALUES(?,?,?,?,?)",
-    [name, `/api/uploads/scripts/${savedName}`, content, now, now],
+    "INSERT INTO scripts(name, file_path, content, kind, created_at, updated_at) VALUES(?,?,?,?,?,?)",
+    [name, `/api/uploads/scripts/${savedName}`, content, kind, now, now],
   );
   const id = Number(db.exec("SELECT last_insert_rowid()")[0]?.values[0]?.[0] ?? 0);
   await persist();
   // 自动解析(识别人物/场景/产品/清晰度/时长/关键词; 失败不影响添加)
+  // 长剧本现阶段只要求「存住」—— 不解析、不提取物料
   let parse = null;
-  try {
-    const { parseScript } = await import("@/lib/server/scriptParse");
-    parse = await parseScript(id);
-  } catch { /* ignore */ }
+  if (kind !== "long") {
+    try {
+      const { parseScript } = await import("@/lib/server/scriptParse");
+      parse = await parseScript(id);
+    } catch { /* ignore */ }
+  }
   return Response.json({ ok: true, id, name, parse });
 }

@@ -136,13 +136,14 @@ function initSchema(db: Database): void {
     db.run("INSERT INTO settings(key,value) VALUES(?,?)", ["db_path", path.join(dataDir(), "drama.db")]);
     void persist();
   }
-  // 剧本表: 名称 + 文件路径 + 内容(提示词/文件文本) + 时间戳
+  // 剧本表: 名称 + 文件路径 + 内容(提示词/文件文本) + 形态(kind: short 短剧本 / long 长剧本) + 时间戳
   db.run(`
     CREATE TABLE IF NOT EXISTS scripts (
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
       name       TEXT NOT NULL,
       file_path  TEXT DEFAULT '',
       content    TEXT DEFAULT '',
+      kind       TEXT DEFAULT 'short',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -161,6 +162,9 @@ function initSchema(db: Database): void {
       ["ratio", "TEXT DEFAULT ''"],
       ["keywords", "TEXT DEFAULT '[]'"],
       ["materials_fp", "TEXT DEFAULT ''"],
+      // 剧本形态: short=短剧本(默认) / long=长剧本 —— 两套共表但查询隔离(API 带 kind 过滤)
+      // ALTER 带 DEFAULT 会把已有行自动填为 'short', 旧数据无需额外回填
+      ["kind", "TEXT DEFAULT 'short'"],
     ] as [string, string][]) {
       if (cols && !cols.includes(col)) db.run(`ALTER TABLE scripts ADD COLUMN ${col} ${def}`);
     }

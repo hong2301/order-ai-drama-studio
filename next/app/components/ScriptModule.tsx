@@ -46,7 +46,8 @@ function filePathOf(url: string): string {
 }
 
 /** 剧本模块: 文件/提示词添加 + 拖拽 + 筛选 + 滚动加载 + 选择列批量删除 + 右键删除 */
-export default function ScriptModule() {
+/** kind: short=短剧本(默认) / long=长剧本 —— 同一组件复用, 数据靠 kind 隔离 */
+export default function ScriptModule({ kind = "short" }: { kind?: "short" | "long" } = {}) {
   const { message } = AntApp.useApp(); // 上下文 message(消费动态主题), 替代静态 message
   const [items, setItems] = useState<Script[]>([]);
   const [total, setTotal] = useState(0);
@@ -75,7 +76,7 @@ export default function ScriptModule() {
   // ---------- 数据加载 ----------
   const load = useCallback((p: number, append: boolean, kw: string, dates: [string, string] | null): void => {
     if (p === 1) setLoading(true); else setLoadingMore(true);
-    const q = new URLSearchParams({ name: kw, page: String(p), page_size: String(PAGE_SIZE) });
+    const q = new URLSearchParams({ name: kw, page: String(p), page_size: String(PAGE_SIZE), kind });
     if (dates) { q.set("date_from", dates[0]); q.set("date_to", dates[1]); }
     fetch(`/api/scripts?${q.toString()}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("加载失败"))))
@@ -91,7 +92,7 @@ export default function ScriptModule() {
 
   // 视频库徽标: 生成中任务数量——占位创建/任务完成都会派发 videos-changed 刷新, 另加 20s 兜底轮询
   const refreshPendingVidCount = useCallback((): void => {
-    fetch("/api/video/tasks/count")
+    fetch(`/api/video/tasks/count?kind=${kind}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("count fail"))))
       .then((j: { ok?: boolean; pending?: number }) => { if (j.ok) setPendingVidCount(Number(j.pending) || 0); })
       .catch(() => { /* 静默 */ });
@@ -111,10 +112,9 @@ export default function ScriptModule() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Modal 渲染完成后重置提示词表单(避免在实例未连接时 resetFields 触发 antd 警告)
-  useEffect(() => {
-    if (modalOpen) textForm.resetFields();
-  }, [modalOpen, textForm]);
+  // 注: 表单重置不用手写 —— 添加弹窗带 destroyOnHidden, 关闭即销毁, 重开重建即为空
+  // (之前在这里 modalOpen 时调 textForm.resetFields() 会报 warn: useForm 实例未连接,
+  //  因为 textForm 绑定的 Form 在「粘贴提示词」tab 里, 而 Tabs 默认只渲染激活的 tab)
 
   const applyFilter = (): void => {
     const { kw, dates } = filterRef.current;
@@ -139,6 +139,7 @@ export default function ScriptModule() {
     try {
       const fd = new FormData();
       fd.append("file", f);
+      fd.append("kind", kind);
       const r = await fetch("/api/scripts/upload", { method: "POST", body: fd });
       const j = (await r.json()) as { detail?: string; ok?: boolean; name?: string; parse?: { ok?: boolean; summary?: string; detail?: string } | null };
       if (!r.ok) throw new Error(j.detail || `上传失败: ${f.name}`);
@@ -190,7 +191,7 @@ export default function ScriptModule() {
       const r = await fetch("/api/scripts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: values.name || "", content: values.content }),
+        body: JSON.stringify({ name: values.name || "", content: values.content, kind }),
       });
       const j = (await r.json()) as { detail?: string; ok?: boolean; parse?: { ok?: boolean; summary?: string; detail?: string } | null };
       if (!r.ok) throw new Error(j.detail || "保存失败");
@@ -347,7 +348,8 @@ export default function ScriptModule() {
           const cs = JSON.parse(rec.character_ids || "[]") as number[];
           const ss = JSON.parse(rec.scene_ids || "[]") as number[];
           const ps = JSON.parse(rec.product_ids || "[]") as number[];
-          tag = `人物${cs.length}·场景${ss.length}·产品${ps.length}`;
+          // 有物料才显示标签(长剧本不解析 → 不显示「人物0·场景0·产品0」)
+          if (cs.length || ss.length || ps.length) tag = `人物${cs.length}·场景${ss.length}·产品${ps.length}`;
           if (rec.resolution || rec.duration || rec.ratio) {
             tag += `｜${[rec.resolution, rec.ratio, rec.duration ? `${rec.duration}秒` : ""].filter(Boolean).join(" ")}`;
           }
@@ -508,6 +510,8 @@ export default function ScriptModule() {
             style={{ position: "fixed", inset: 0, zIndex: 30 }}
           />
           <div style={{ position: "fixed", top: menu.y, left: menu.x, zIndex: 31, minWidth: 96, background: "var(--bg-card)", border: "1px solid var(--border-2)", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.16)", overflow: "hidden" }}>
+            {/* 解析: 仅短剧本(长剧本现阶段只存内容, 不做物料/参数解析) */}
+            {kind !== "long" && (
             <div
               className="conv-menu-item"
               onClick={() => { const id = menu.id; setMenu(null); void parseOne(id); }}
@@ -515,6 +519,7 @@ export default function ScriptModule() {
             >
               解析
             </div>
+            )}
             <div
               className="conv-menu-item"
               onClick={() => { const id = menu.id; setMenu(null); void delOne(id); }}
@@ -527,7 +532,7 @@ export default function ScriptModule() {
       )}
 
       {/* 视频库弹窗 */}
-      <VideoLibraryModal open={videoLibOpen} onClose={() => setVideoLibOpen(false)} />
+      <VideoLibraryModal open={videoLibOpen} onClose={() => setVideoLibOpen(false)} kind={kind} />
 
       {/* 标题弹窗编辑(点击名称列打开) */}
       <Modal open={editName.open} title="修改标题" onCancel={() => setEditName((p) => ({ ...p, open: false }))} footer={null} width={460} destroyOnHidden>
@@ -617,6 +622,8 @@ export default function ScriptModule() {
             {
               key: "text",
               label: "粘贴提示词",
+              // forceRender: 即使未激活也渲染, 保证 textForm 始终已连接(避免 useForm 未连接警告)
+              forceRender: true,
               children: (
                 <Form form={textForm} layout="vertical" style={{ marginTop: 8 }}>
                   <Form.Item name="content" rules={[{ required: true, message: "请输入剧本内容/提示词" }]}>

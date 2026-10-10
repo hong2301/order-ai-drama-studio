@@ -9,7 +9,9 @@ export async function GET(req: NextRequest): Promise<Response> {
     await ensureVideoTables();
     const limit = Math.min(100, Math.max(1, Number(req.nextUrl.searchParams.get("limit") || 20)));
     const offset = Math.max(0, Number(req.nextUrl.searchParams.get("offset") || 0));
-    const tasks = await listVideoTasks(limit, offset);
+    // 剧本形态过滤: short/long —— 视频库按短/长剧本隔离(不传则全部)
+    const kind = req.nextUrl.searchParams.get("kind") || undefined;
+    const tasks = await listVideoTasks(limit, offset, kind);
     return Response.json({ ok: true, tasks });
   } catch (e) {
     return Response.json({ ok: false, detail: (e as Error).message }, { status: 500 });

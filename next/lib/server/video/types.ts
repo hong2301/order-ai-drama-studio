@@ -95,6 +95,8 @@ export interface VideoTask {
   modelKey: string;
   model: string;
   scriptName?: string;   // 关联剧本名(视频库展示)
+  /** 所属剧本形态: short=短剧本(默认) / long=长剧本 —— 视频库按它隔离 */
+  kind?: string;
   prompt: string;
   resolution?: string;
   ratio?: string;

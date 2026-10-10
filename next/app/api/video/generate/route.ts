@@ -41,6 +41,8 @@ interface GenBody {
   modelKey?: string; prompt?: string; scriptId?: number | null;
   imageUrl?: string | null; resolution?: string; ratio?: string; duration?: number;
   scriptName?: string;
+  /** 剧本形态(short/long): 由剧本继承; 也允许前端显式传 */
+  kind?: string;
 }
 
 /** 生成硬性约束(补在提示词末尾, 不改剧本内容; 让视频模型严格贴剧本人设场景产品) */
@@ -182,6 +184,7 @@ async function runGenerate(b: GenBody, placeholderId: string): Promise<void> {
       ratio: b.ratio || undefined,
       duration: b.duration && b.duration > 0 ? b.duration : undefined,
       scriptName,
+      kind: b.kind,
     });
     step("提交完成, 删除占位");
     const db = await getDb();
@@ -205,23 +208,29 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (!modelKey) return Response.json({ ok: false, detail: "缺少 modelKey" }, { status: 400 });
   try {
     await ensureVideoTables();
-    // 绑定剧本 → 预取剧本名(占位卡片显示用; 毫秒级)
+    // 绑定剧本 → 预取剧本名 + 形态(占位卡片显示/视频库隔离用; 毫秒级)
     let scriptName = b.scriptName || "";
+    let kind = String(b.kind || "").trim();
     const scriptId = Number(b.scriptId);
     if (Number.isInteger(scriptId) && scriptId > 0) {
-      const row = queryOne(await getDb(), "SELECT name FROM scripts WHERE id=?", [scriptId]);
-      if (row) scriptName = String(row.name || "");
+      const row = queryOne(await getDb(), "SELECT name, kind FROM scripts WHERE id=?", [scriptId]);
+      if (row) {
+        scriptName = String(row.name || "");
+        kind = String(row.kind || "short");   // 视频跟随剧本形态(短剧本/长剧本各一个视频库)
+      }
     }
+    if (!kind) kind = "short";
     // 立即建占位 → 返回(视频库马上出现"生成中"); 适配/提交放后台(带 180s 兜底超时)
     const placeholder = await createPlaceholderTask({
       modelKey, prompt: String(b.prompt || ""),
       resolution: b.resolution, ratio: b.ratio,
       duration: b.duration && b.duration > 0 ? b.duration : undefined,
       scriptName,
+      kind,
     });
     void (async () => {
       const guard = setTimeout(() => { void markPlaceholderFailed(placeholder.id, "生成提交超时(300s), 请重试"); }, 300000);
-      try { await runGenerate({ ...b, scriptName }, placeholder.id); } finally { clearTimeout(guard); }
+      try { await runGenerate({ ...b, scriptName, kind }, placeholder.id); } finally { clearTimeout(guard); }
     })();
     return Response.json({ ok: true, task: placeholder });
   } catch (e) {

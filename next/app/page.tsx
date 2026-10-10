@@ -69,10 +69,26 @@ export default function Home() {
       </header>
 
       {/* body: 模块从左到右排列, 自动填充剩余高度(无 tail) */}
-      {/* body: 短剧本(现有三列工作台) / 长剧本(待建设, 先留空) */}
+      {/* body: 短剧本(现有三列工作台) / 长剧本(三列, 左列剧本库, 其余待建设) */}
       {mode === "long" ? (
-        <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-5)", fontSize: 13, letterSpacing: 1 }}>
-          长剧本（待建设）
+        <div style={{ flex: 1, minHeight: 0, padding: 16, display: "flex", gap: 16, alignItems: "stretch", overflowX: "auto" }}>
+          {/* 左列: 长剧本库(kind=long, 与短剧本数据隔离) */}
+          <div style={{ flex: 1, minWidth: 420, display: "flex", flexDirection: "column", gap: 12 }}>
+            <ScriptModule kind="long" />
+          </div>
+          {/* 中列 / 右列: 待建设 */}
+          {[0, 1].map((i) => (
+            <div
+              key={i}
+              style={{
+                flex: 1, minWidth: 420, display: "flex", alignItems: "center", justifyContent: "center",
+                border: "1px dashed var(--border-4)", borderRadius: 12,
+                color: "var(--text-5)", fontSize: 13, letterSpacing: 1,
+              }}
+            >
+              待建设
+            </div>
+          ))}
         </div>
       ) : (
       <div style={{ flex: 1, minHeight: 0, padding: 16, display: "flex", gap: 16, alignItems: "stretch", overflowX: "auto" }}>

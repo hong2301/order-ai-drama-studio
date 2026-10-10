@@ -86,6 +86,7 @@ function rowToTask(r: Record<string, unknown>): VideoTask {
     modelKey: String(r.model_key || ""),
     model: String(r.model || ""),
     scriptName: r.script_name ? String(r.script_name) : "",
+    kind: r.kind ? String(r.kind) : "short",
     prompt: String(r.prompt || ""),
     imageUrl: r.image_url ? String(r.image_url) : null,
     status: String(r.status) as VideoTaskStatus,
@@ -110,6 +111,7 @@ export async function ensureVideoTables(): Promise<void> {
       model_key  TEXT DEFAULT '',
       model      TEXT DEFAULT '',
       script_name TEXT DEFAULT '',
+      kind       TEXT DEFAULT 'short',
       prompt     TEXT DEFAULT '',
       image_url  TEXT DEFAULT '',
       status     TEXT DEFAULT 'queued',
@@ -130,6 +132,8 @@ export async function ensureVideoTables(): Promise<void> {
     if (cols && !cols.includes("ratio")) db.run(`ALTER TABLE ${TABLE} ADD COLUMN ratio TEXT DEFAULT ''`);
     if (cols && !cols.includes("duration")) db.run(`ALTER TABLE ${TABLE} ADD COLUMN duration TEXT DEFAULT ''`);
     if (cols && !cols.includes("stage")) db.run(`ALTER TABLE ${TABLE} ADD COLUMN stage TEXT DEFAULT ''`);
+    // 剧本形态(short/long): 视频库按它跟短/长剧本分开
+    if (cols && !cols.includes("kind")) db.run(`ALTER TABLE ${TABLE} ADD COLUMN kind TEXT DEFAULT 'short'`);
   } catch { /* 已存在 */ }
   await persist();
 }
@@ -151,6 +155,8 @@ export async function createVideoTask(input: {
   duration?: number;
   /** 关联剧本名(视频库展示用) */
   scriptName?: string;
+  /** 所属剧本形态: short(默认) / long —— 视频库按它隔离 */
+  kind?: string;
 }): Promise<VideoTask> {
   const def = getModelDef(input.modelKey);
   if (!def) throw new Error(`未知模型: ${input.modelKey}`);
@@ -206,6 +212,7 @@ export async function createVideoTask(input: {
     modelKey: def.key,
     model: def.model,
     scriptName: input.scriptName || "",
+    kind: input.kind || "short",
     prompt: input.prompt,
     resolution: input.resolution || "",
     ratio: input.ratio || "",
@@ -220,9 +227,9 @@ export async function createVideoTask(input: {
   };
   const db = await getDb();
   db.run(
-    `INSERT INTO ${TABLE}(id,provider,model_key,model,script_name,prompt,image_url,status,video_url,error,resolution,ratio,duration,created_at,updated_at)
-     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    [task.id, task.provider, task.modelKey, task.model, task.scriptName, task.prompt,
+    `INSERT INTO ${TABLE}(id,provider,model_key,model,script_name,kind,prompt,image_url,status,video_url,error,resolution,ratio,duration,created_at,updated_at)
+     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [task.id, task.provider, task.modelKey, task.model, task.scriptName, task.kind || "short", task.prompt,
      task.imageUrl || "", task.status, task.videoUrl || "", task.error || "",
      task.resolution || "", task.ratio || "", task.duration || "", now, now],
   );
@@ -232,22 +239,23 @@ export async function createVideoTask(input: {
 
 /** 立即创建占位任务(生成中占位): 后台适配+提交完成后会用真实方舟任务替换(id 更新) */
 export async function createPlaceholderTask(input: {
-  modelKey: string; prompt: string; resolution?: string; ratio?: string; duration?: number; scriptName?: string;
+  modelKey: string; prompt: string; resolution?: string; ratio?: string; duration?: number; scriptName?: string; kind?: string;
 }): Promise<VideoTask> {
   await ensureVideoTables();
   const db = await getDb();
   const id = `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const now = new Date().toISOString();
   db.run(
-    `INSERT INTO ${TABLE}(id,provider,model_key,model,script_name,prompt,image_url,status,error,resolution,ratio,duration,stage,created_at,updated_at)
-     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    [id, "doubao", input.modelKey, input.modelKey, input.scriptName || "", input.prompt, "", "queued", "",
+    `INSERT INTO ${TABLE}(id,provider,model_key,model,script_name,kind,prompt,image_url,status,error,resolution,ratio,duration,stage,created_at,updated_at)
+     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [id, "doubao", input.modelKey, input.modelKey, input.scriptName || "", input.kind || "short", input.prompt, "", "queued", "",
      input.resolution || "", input.ratio || "", input.duration ? String(input.duration) : "", "adapting", now, now],
   );
   await persist();
   const row = queryOne(db, `SELECT * FROM ${TABLE} WHERE id=?`, [id]);
   return (row ? rowToTask(row) : {
     id, provider: "doubao", modelKey: input.modelKey, model: input.modelKey, scriptName: input.scriptName || "",
+    kind: input.kind || "short",
     prompt: input.prompt, resolution: input.resolution || "", ratio: input.ratio || "",
     duration: input.duration ? String(input.duration) : "", imageUrl: null,
     status: "queued" as const, videoUrl: null, error: null, createdAt: now, updatedAt: now,
@@ -339,23 +347,30 @@ export async function refreshVideoTask(id: string): Promise<VideoTask | null> {
   };
 }
 
-/** 任务列表(completed 按完成时间最新在前, 生成中的跟在后面; 分页) */
-export async function listVideoTasks(limit = 50, offset = 0): Promise<VideoTask[]> {
+/** 任务列表(completed 按完成时间最新在前, 生成中的跟在后面; 分页)
+ *  kind: short/long —— 视频库按剧本形态隔离(不传则全部) */
+export async function listVideoTasks(limit = 50, offset = 0, kind?: string): Promise<VideoTask[]> {
   const db = await getDb();
+  const where = kind ? "WHERE kind = ?" : "";
+  const params: unknown[] = kind ? [kind, limit, offset] : [limit, offset];
   const rows = queryAll(
     db,
-    `SELECT * FROM ${TABLE}
+    `SELECT * FROM ${TABLE} ${where}
      ORDER BY CASE status WHEN 'succeeded' THEN 0 else 1 END, updated_at DESC
      LIMIT ? OFFSET ?`,
-    [limit, offset],
+    params,
   );
   return rows.map(rowToTask);
 }
 
-/** 生成中任务数(queued/running, 含占位) —— 视频库徽标用 */
-export async function pendingVideoTaskCount(): Promise<number> {
+/** 生成中任务数(queued/running, 含占位) —— 视频库徽标用; kind 同列表过滤口径 */
+export async function pendingVideoTaskCount(kind?: string): Promise<number> {
   const db = await getDb();
-  const r = queryOne(db, `SELECT COUNT(*) AS n FROM ${TABLE} WHERE status IN ('queued','running')`);
+  const r = queryOne(
+    db,
+    `SELECT COUNT(*) AS n FROM ${TABLE} WHERE status IN ('queued','running')${kind ? " AND kind = ?" : ""}`,
+    kind ? [kind] : [],
+  );
   return Number(r?.n ?? 0);
 }
 

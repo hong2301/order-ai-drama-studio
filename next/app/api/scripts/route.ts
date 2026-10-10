@@ -2,13 +2,15 @@
 import type { NextRequest } from "next/server";
 import { getDb, queryAll, queryOne, persist, guessScriptName } from "@/lib/server/db";
 
-type Body = { name?: string; file_path?: string; content?: string };
+type Body = { name?: string; file_path?: string; content?: string; kind?: string };
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest): Promise<Response> {
   const url = new URL(req.url);
   const name = url.searchParams.get("name") || "";
+  // 剧本形态过滤: short=短剧本(默认) / long=长剧本 —— 两套共表, 靠 kind 隔离
+  const kind = url.searchParams.get("kind") || "";
   const dateFrom = url.searchParams.get("date_from") || "";
   const dateTo = url.searchParams.get("date_to") || "";
   const page = Math.max(1, Number(url.searchParams.get("page") || 1));
@@ -19,6 +21,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   const where: string[] = [];
   const params: unknown[] = [];
   if (name) { where.push("name LIKE ?"); params.push(`%${name}%`); }
+  if (kind) { where.push("kind = ?"); params.push(kind); }
   if (dateFrom) { where.push("substr(created_at,1,10) >= ?"); params.push(dateFrom); }
   if (dateTo) { where.push("substr(created_at,1,10) <= ?"); params.push(dateTo); }
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
@@ -73,18 +76,22 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (!finalName) return Response.json({ detail: "名称或内容不能为空" }, { status: 400 });
   const now = new Date().toISOString();
   const db = await getDb();
+  const kind = (b.kind || "short").trim() || "short";
   db.run(
-    "INSERT INTO scripts(name, file_path, content, created_at, updated_at) VALUES(?,?,?,?,?)",
-    [finalName, (b.file_path || "").trim(), content, now, now],
+    "INSERT INTO scripts(name, file_path, content, kind, created_at, updated_at) VALUES(?,?,?,?,?,?)",
+    [finalName, (b.file_path || "").trim(), content, kind, now, now],
   );
   // last_insert_rowid 须在 persist(export) 前读取
   const id = Number(db.exec("SELECT last_insert_rowid()")[0]?.values[0]?.[0] ?? 0);
   await persist();
   // 自动解析(识别人物/场景/产品/清晰度/时长/关键词; 失败不影响添加)
+  // 长剧本现阶段只要求「存住」—— 不解析、不提取物料、不联动资料库
   let parse = null;
-  try {
-    const { parseScript } = await import("@/lib/server/scriptParse");
-    parse = await parseScript(id);
-  } catch { /* ignore */ }
+  if (kind !== "long") {
+    try {
+      const { parseScript } = await import("@/lib/server/scriptParse");
+      parse = await parseScript(id);
+    } catch { /* ignore */ }
+  }
   return Response.json({ ok: true, id, parse });
 }
