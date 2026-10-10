@@ -93,6 +93,8 @@ export interface LibraryRecordInput {
   identity?: string[];
   prompt?: string;
   image_ids?: number[];
+  /** 音色参考音频 id(仅人物库有意义; 场景/产品忽略) */
+  audio_ids?: number[];
 }
 
 export interface UpsertResult {
@@ -120,14 +122,23 @@ export async function upsertLibraryRecord(table: LibraryTable, input: LibraryRec
 
     // 实质同名(名称归一化一致, 容错空格/标点/全半角/大小写等细微差异) → 同一条记录:
     // 合并身份与图片; 提示词不同则融合(而非直接覆盖)
-    const same = queryOne(db, `SELECT id, identity, prompt, image_ids FROM ${table} WHERE name_key=? ORDER BY id LIMIT 1`, [nkey]);
+    // 旧库迁移: characters 有 audio_ids(音色参考), 另两表没有 —— 查询列要按表区分
+    const same = table === "characters"
+      ? queryOne(db, "SELECT id, identity, prompt, image_ids, audio_ids FROM characters WHERE name_key=? ORDER BY id LIMIT 1", [nkey])
+      : queryOne(db, `SELECT id, identity, prompt, image_ids FROM ${table} WHERE name_key=? ORDER BY id LIMIT 1`, [nkey]);
     if (same) {
       let oldTags: string[] = [];
       let oldImgs: number[] = [];
+      let oldAudios: number[] = [];
       try { oldTags = JSON.parse(String(same.identity || "[]")) as string[]; } catch { /* ignore */ }
       try { oldImgs = JSON.parse(String(same.image_ids || "[]")) as number[]; } catch { /* ignore */ }
+      try { oldAudios = JSON.parse(String(same.audio_ids || "[]")) as number[]; } catch { /* ignore */ }
       const merged = uniqTags([...oldTags, ...newTags]);
       const mergedImgs = [...new Set([...oldImgs, ...(input.image_ids || [])])];
+      // 音频只有人物库用(场景/产品表无 audio_ids 列, 保持 [])
+      const mergedAudios = table === "characters"
+        ? [...new Set([...oldAudios, ...(input.audio_ids || [])])]
+        : [];
       const finalPrompt = await mergePrompts(name, String(same.prompt || ""), prompt);
       // 图片是并集累积(同名=同一对象, 多角度参考图都要留)。累积过多时给一条可见日志:
       // 生成时会按模型上限「均衡取用」, 不至于报错, 但值得让使用者知道
@@ -135,16 +146,21 @@ export async function upsertLibraryRecord(table: LibraryTable, input: LibraryRec
         console.log(`[library] 「${name}」图片已累积到 ${mergedImgs.length} 张, 生成时按模型上限均衡取用`);
       }
       db.run(
-        `UPDATE ${table} SET identity=?, prompt=?, image_ids=?, content_key=?, name_key=?, updated_at=? WHERE id=?`,
-        [JSON.stringify(merged), finalPrompt, JSON.stringify(mergedImgs), contentKey(name, finalPrompt), nkey, now, Number(same.id)],
+        `UPDATE ${table} SET identity=?, prompt=?, image_ids=?, audio_ids=?, content_key=?, name_key=?, updated_at=? WHERE id=?`,
+        [JSON.stringify(merged), finalPrompt, JSON.stringify(mergedImgs), JSON.stringify(mergedAudios), contentKey(name, finalPrompt), nkey, now, Number(same.id)],
       );
       await persist();
       return { id: Number(same.id), merged: true, identity: merged };
     }
 
+    const isChar = table === "characters";
     db.run(
-      `INSERT INTO ${table}(name, identity, prompt, image_ids, content_key, name_key, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?)`,
-      [name, JSON.stringify(newTags), prompt, JSON.stringify(input.image_ids || []), contentKey(name, prompt), nkey, now, now],
+      isChar
+        ? `INSERT INTO ${table}(name, identity, prompt, image_ids, audio_ids, content_key, name_key, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?)`
+        : `INSERT INTO ${table}(name, identity, prompt, image_ids, content_key, name_key, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?)`,
+      isChar
+        ? [name, JSON.stringify(newTags), prompt, JSON.stringify(input.image_ids || []), JSON.stringify(input.audio_ids || []), contentKey(name, prompt), nkey, now, now]
+        : [name, JSON.stringify(newTags), prompt, JSON.stringify(input.image_ids || []), contentKey(name, prompt), nkey, now, now],
     );
     const id = Number(db.exec("SELECT last_insert_rowid()")[0]?.values[0]?.[0] ?? 0);
     await persist();
@@ -160,7 +176,7 @@ function parseNumArr(raw: unknown): number[] {
   } catch { return []; }
 }
 
-/** 三库列表项(含解析后的标签/图片明细) */
+/** 三库列表项(含解析后的标签/图片明细; 音频仅人物库有) */
 export interface LibraryListItem {
   id: number;
   name: string;
@@ -168,6 +184,8 @@ export interface LibraryListItem {
   prompt: string;
   image_ids: number[];
   images: { id: number; path: string; name: string; description: string }[];
+  audio_ids: number[];
+  audios: { id: number; path: string; name: string; description: string }[];
   created_at: string;
   updated_at: string;
 }
@@ -198,13 +216,17 @@ export async function listLibraryRecords(
     [...params, pageSize, (page - 1) * pageSize],
   );
 
-  // 解析 JSON 字段 + 关联图片明细
+  // 解析 JSON 字段 + 关联图片明细(人物库额外带音频)
+  const isChar = table === "characters";
   const imageIds = new Set<number>();
+  const audioIds = new Set<number>();
   const items = rows.map((r) => {
     let identity: string[] = [];
     try { identity = JSON.parse(String(r.identity || "[]")) as string[]; } catch { /* ignore */ }
     const ids = parseNumArr(r.image_ids);
     ids.forEach((n) => imageIds.add(n));
+    const aIds = isChar ? parseNumArr(r.audio_ids) : [];
+    aIds.forEach((n) => audioIds.add(n));
     return {
       id: Number(r.id),
       name: String(r.name || ""),
@@ -212,6 +234,8 @@ export async function listLibraryRecords(
       prompt: String(r.prompt || ""),
       image_ids: ids,
       images: [] as LibraryListItem["images"],
+      audio_ids: aIds,
+      audios: [] as LibraryListItem["audios"],
       created_at: String(r.created_at || ""),
       updated_at: String(r.updated_at || ""),
     };
@@ -226,6 +250,20 @@ export async function listLibraryRecords(
     for (const it of items) {
       it.images = it.image_ids
         .map((n) => imgMap.get(n))
+        .filter((x): x is Record<string, unknown> => !!x)
+        .map((x) => ({ id: Number(x.id), path: String(x.path || ""), name: String(x.name || ""), description: String(x.description || "") }));
+    }
+  }
+  if (audioIds.size) {
+    const auds = queryAll(
+      db,
+      `SELECT id, path, name, description FROM audios WHERE id IN (${[...audioIds].map(() => "?").join(",")})`,
+      [...audioIds],
+    );
+    const audMap = new Map(auds.map((a) => [Number(a.id), a]));
+    for (const it of items) {
+      it.audios = it.audio_ids
+        .map((n) => audMap.get(n))
         .filter((x): x is Record<string, unknown> => !!x)
         .map((x) => ({ id: Number(x.id), path: String(x.path || ""), name: String(x.name || ""), description: String(x.description || "") }));
     }

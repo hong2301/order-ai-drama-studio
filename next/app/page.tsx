@@ -86,7 +86,7 @@ export default function Home() {
           </div>
           {/* 右列: 人物/场景/产品 三库(与短剧本共用同一套资料库) */}
           <div style={{ flex: 0.9, minWidth: 380, display: "flex", flexDirection: "column", gap: 12 }}>
-            <InfoCardModule title="人物库" api="/api/characters" identityLabel="身份" identityPlaceholder="输入身份后回车, 如 主角/婆婆/邻居" />
+            <InfoCardModule title="人物库" api="/api/characters" identityLabel="身份" identityPlaceholder="输入身份后回车, 如 主角/婆婆/邻居" showAudio />
             <InfoCardModule title="场景库" api="/api/scenes" identityLabel="类型" identityPlaceholder="" showIdentity={false} />
             <InfoCardModule title="产品库" api="/api/products" identityLabel="品类" identityPlaceholder="" showIdentity={false} />
           </div>

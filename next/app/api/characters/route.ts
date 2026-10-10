@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server";
 import { normName } from "@/lib/server/db";
 import { listLibraryRecords, upsertLibraryRecord } from "@/lib/server/library";
 
-type Body = { name?: string; identity?: string[]; prompt?: string; image_ids?: number[] };
+type Body = { name?: string; identity?: string[]; prompt?: string; image_ids?: number[]; audio_ids?: number[] };
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +38,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     identity: b.identity,
     prompt: b.prompt,
     image_ids: b.image_ids,
+    audio_ids: b.audio_ids,   // 音色参考音频(仅人物库)
   });
   return Response.json({ ok: true, id: r.id, merged: r.merged });
 }

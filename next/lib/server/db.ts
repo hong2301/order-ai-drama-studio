@@ -208,6 +208,18 @@ function initSchema(db: Database): void {
     }
   } catch { /* ignore */ }
 
+  // 音频表: 音色参考用(人物库挂多段, 如「正常说话」「生气」)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS audios (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      path        TEXT NOT NULL,
+      name        TEXT DEFAULT '',
+      description TEXT DEFAULT '',
+      created_at  TEXT NOT NULL,
+      updated_at  TEXT NOT NULL
+    );
+  `);
+
   db.run(`
     CREATE TABLE IF NOT EXISTS images (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -248,6 +260,7 @@ function initSchema(db: Database): void {
       identity   TEXT DEFAULT '[]',
       prompt     TEXT DEFAULT '',
       image_ids  TEXT DEFAULT '[]',
+      audio_ids  TEXT DEFAULT '[]',
       content_key TEXT DEFAULT '',
       name_key   TEXT DEFAULT '',
       created_at TEXT NOT NULL,
@@ -278,6 +291,10 @@ function initSchema(db: Database): void {
       const cols = db.exec(`PRAGMA table_info(${t})`)[0]?.values.map((r) => r[1]);
       if (cols && !cols.includes("content_key")) db.run(`ALTER TABLE ${t} ADD COLUMN content_key TEXT DEFAULT ''`);
       if (cols && !cols.includes("name_key")) db.run(`ALTER TABLE ${t} ADD COLUMN name_key TEXT DEFAULT ''`);
+      // 人物库特有: 音色参考音频 id 数组(与 image_ids 同理; 场景/产品不需要)
+      if (t === "characters" && cols && !cols.includes("audio_ids")) {
+        db.run("ALTER TABLE characters ADD COLUMN audio_ids TEXT DEFAULT '[]'");
+      }
       const rows = db.exec(`SELECT id, name, prompt FROM ${t} WHERE content_key='' OR name_key=''`)[0]?.values || [];
       for (const r of rows) {
         const name = String(r[1] || "");

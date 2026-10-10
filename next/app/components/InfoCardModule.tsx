@@ -7,6 +7,7 @@ import type { ColumnsType } from "antd/es/table";
 import zhCN from "antd/locale/zh_CN";
 import type { UploadFile } from "antd/es/upload/interface";
 import ImageGalleryModal, { type GalleryImage } from "./ImageGalleryModal";
+import AudioManagerModal, { type AudioItem } from "./AudioManagerModal";
 
 interface ImageItem { id: number; path: string; name: string; description: string }
 interface CardItem {
@@ -16,6 +17,9 @@ interface CardItem {
   prompt: string;
   image_ids: number[];
   images?: GalleryImage[];
+  /** 音色参考音频(仅人物库) */
+  audio_ids?: number[];
+  audios?: AudioItem[];
   created_at: string;
 }
 
@@ -36,8 +40,9 @@ export default function InfoCardModule(props: {
   identityLabel: string;    // 身份/类型/品类
   identityPlaceholder: string;
   showIdentity?: boolean;   // 是否展示身份(类型/品类)字段(场景/产品不需要)
+  showAudio?: boolean;      // 是否展示「音色」列(仅人物库)
 }) {
-  const { title, api, identityLabel, identityPlaceholder, showIdentity = true } = props;
+  const { title, api, identityLabel, identityPlaceholder, showIdentity = true, showAudio = false } = props;
   const { message, modal } = AntApp.useApp();
 
   const [items, setItems] = useState<CardItem[]>([]);
@@ -57,6 +62,8 @@ export default function InfoCardModule(props: {
   const [pickedImgs, setPickedImgs] = useState<number[]>([]); // 弹窗内已选图片 ids
   // 图库管理弹窗(点击列表缩略图打开)
   const [gallery, setGallery] = useState<{ open: boolean; record: CardItem | null }>({ open: false, record: null });
+  // 音色管理弹窗(点击列表「音色」列打开; 仅人物库)
+  const [audioModal, setAudioModal] = useState<{ open: boolean; record: CardItem | null }>({ open: false, record: null });
 
   const filterRef = useRef<{ kw: string }>({ kw: "" });
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -396,6 +403,24 @@ export default function InfoCardModule(props: {
         );
       },
     },
+    // 音色参考音频(仅人物库): 点击打开音频管理
+    ...(showAudio
+      ? [{
+          title: "音色", key: "audios", width: 86,
+          render: (_v: unknown, rec: CardItem) => {
+            const n = (rec.audios || []).length;
+            return (
+              <span
+                onClick={(e) => { e.stopPropagation(); setAudioModal({ open: true, record: rec }); }}
+                title={n ? "点击管理音色参考" : "点击添加音色参考"}
+                style={{ fontSize: 12, color: n ? "var(--text-2)" : "var(--text-5)", cursor: "pointer" }}
+              >
+                {n ? `${n} 段` : "＋ 添加"}
+              </span>
+            );
+          },
+        }]
+      : []),
     ...(showIdentity
       ? [{
           title: identityLabel, dataIndex: "identity", key: "identity", width: 110,
@@ -590,6 +615,27 @@ export default function InfoCardModule(props: {
       </Modal>
 
       {/* 图片管理弹窗(点击列表缩略图打开): 增删图片/改名, 确认后统一提交 */}
+      {/* 音色管理弹窗(人物库) */}
+      {showAudio && audioModal.record && (
+        <AudioManagerModal
+          open={audioModal.open}
+          recordId={audioModal.record.id}
+          audioIds={audioModal.record.audio_ids || []}
+          onClose={() => setAudioModal({ open: false, record: null })}
+          onChanged={(ids) => {
+            const rid = audioModal.record?.id;
+            if (!rid) return;
+            // 本地立即更新 + 落库(部分更新, 只改 audio_ids)
+            setItems((prev) => prev.map((x) => (x.id === rid ? { ...x, audio_ids: ids } : x)));
+            void fetch(`${api}/${rid}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ audio_ids: ids }),
+            });
+          }}
+        />
+      )}
+
       <ImageGalleryModal
         open={gallery.open}
         recordId={gallery.record?.id ?? 0}

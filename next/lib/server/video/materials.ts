@@ -15,6 +15,8 @@ export interface ScriptMaterial {
   name: string;
   prompt: string;
   images: { name?: string; url: string }[];
+  /** 音色参考音频(仅人物库有; 场景/产品为空) */
+  audios: { name?: string; url: string }[];
 }
 
 /** 参考图条目(带来源信息, 便于提示词里的 @图像N 绑定) */
@@ -50,7 +52,9 @@ export async function loadScriptMaterials(scriptId: number): Promise<ScriptMater
     if (!ids.length) continue;
     const rows = queryAll(
       db,
-      `SELECT name, prompt, image_ids FROM ${table} WHERE id IN (${ids.map(() => "?").join(",")})`,
+      table === "characters"
+        ? `SELECT name, prompt, image_ids, audio_ids FROM characters WHERE id IN (${ids.map(() => "?").join(",")})`
+        : `SELECT name, prompt, image_ids FROM ${table} WHERE id IN (${ids.map(() => "?").join(",")})`,
       ids,
     );
     // 收集图片 id → 一次性查 images 表(带名称, 如 正面照)
@@ -65,6 +69,21 @@ export async function loadScriptMaterials(scriptId: number): Promise<ScriptMater
       for (const i of imgs) imgMap.set(Number(i.id), { name: String(i.name || ""), path: String(i.path || "") });
     }
     for (const r of rows) {
+      // 人物库的音色参考音频(如「正常说话」「生气」)
+      const aIds = kind === "人物" ? parseIds((r as Record<string, unknown>).audio_ids) : [];
+      const audios: { name?: string; url: string }[] = [];
+      if (aIds.length) {
+        const auds = queryAll(
+          db,
+          `SELECT id, name, path FROM audios WHERE id IN (${aIds.map(() => "?").join(",")})`,
+          aIds,
+        );
+        const audMap = new Map(auds.map((a) => [Number(a.id), { name: String(a.name || ""), path: String(a.path || "") }]));
+        for (const id of aIds) {
+          const a = audMap.get(id);
+          if (a) audios.push({ name: a.name, url: a.path });
+        }
+      }
       out.push({
         kind,
         name: String(r.name || ""),
@@ -73,6 +92,7 @@ export async function loadScriptMaterials(scriptId: number): Promise<ScriptMater
           .map((n) => imgMap.get(n))
           .filter((x): x is { name: string; path: string } => !!x)
           .map((x) => ({ name: x.name, url: x.path })),
+        audios,
       });
     }
   }
@@ -119,6 +139,17 @@ export function buildMaterialsBlock(mats: ScriptMaterial[], refs: RefImage[] = [
     lines.push("人物外貌/服装、场景陈设光线、产品外观包装都要与对应 @图像N 保持一致，不要自行替换形象。");
   }
   return lines.join("\n");
+}
+
+/** 选参考音频(音色): 取人物库里挂了音频的人物的第一段(方舟规定音频不能单独作参考, 需搭配图/视频) */
+export function pickReferenceAudios(mats: ScriptMaterial[]): { name?: string; url: string }[] {
+  const out: { name?: string; url: string }[] = [];
+  for (const m of mats) {
+    if (m.kind !== "人物") continue;
+    const a = m.audios[0];
+    if (a) out.push({ name: `${m.name}${a.name ? `·${a.name}` : ""}`, url: a.url });
+  }
+  return out;
 }
 
 /** 本地 /api/uploads/... → 存在的绝对路径(不存在返回 null) */

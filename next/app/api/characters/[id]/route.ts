@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server";
 import { getDb, queryOne, persist } from "@/lib/server/db";
 
 type Ctx = { params: Promise<{ id: string }> };
-type Body = { name?: string; identity?: string[]; prompt?: string; image_ids?: number[] };
+type Body = { name?: string; identity?: string[]; prompt?: string; image_ids?: number[]; audio_ids?: number[] };
 
 export const dynamic = "force-dynamic";
 
@@ -25,9 +25,10 @@ export async function PUT(req: NextRequest, ctx: Ctx): Promise<Response> {
   const finalIdentity = b.identity ? JSON.stringify(b.identity) : String(exist.identity || "[]");
   const finalPrompt = b.prompt !== undefined ? String(b.prompt ?? "").trim() : String(exist.prompt || "");
   const finalIds = b.image_ids ? JSON.stringify(b.image_ids) : String(exist.image_ids || "[]");
+  const finalAudios = b.audio_ids ? JSON.stringify(b.audio_ids) : String(exist.audio_ids || "[]");
   db.run(
-    "UPDATE characters SET name=?, identity=?, prompt=?, image_ids=?, updated_at=? WHERE id=?",
-    [finalName, finalIdentity, finalPrompt, finalIds, new Date().toISOString(), nid],
+    "UPDATE characters SET name=?, identity=?, prompt=?, image_ids=?, audio_ids=?, updated_at=? WHERE id=?",
+    [finalName, finalIdentity, finalPrompt, finalIds, finalAudios, new Date().toISOString(), nid],
   );
   await persist();
   return Response.json({ ok: true });
