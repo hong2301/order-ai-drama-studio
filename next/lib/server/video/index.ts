@@ -87,6 +87,7 @@ function rowToTask(r: Record<string, unknown>): VideoTask {
     model: String(r.model || ""),
     scriptName: r.script_name ? String(r.script_name) : "",
     kind: r.kind ? String(r.kind) : "short",
+    segment: Number(r.segment || 0),
     prompt: String(r.prompt || ""),
     imageUrl: r.image_url ? String(r.image_url) : null,
     status: String(r.status) as VideoTaskStatus,
@@ -112,6 +113,8 @@ export async function ensureVideoTables(): Promise<void> {
       model      TEXT DEFAULT '',
       script_name TEXT DEFAULT '',
       kind       TEXT DEFAULT 'short',
+      segment    INTEGER DEFAULT 0,
+      script_id  INTEGER DEFAULT 0,
       prompt     TEXT DEFAULT '',
       image_url  TEXT DEFAULT '',
       status     TEXT DEFAULT 'queued',
@@ -134,6 +137,10 @@ export async function ensureVideoTables(): Promise<void> {
     if (cols && !cols.includes("stage")) db.run(`ALTER TABLE ${TABLE} ADD COLUMN stage TEXT DEFAULT ''`);
     // 剧本形态(short/long): 视频库按它跟短/长剧本分开
     if (cols && !cols.includes("kind")) db.run(`ALTER TABLE ${TABLE} ADD COLUMN kind TEXT DEFAULT 'short'`);
+    // 长剧本分段生成: 这是第几段(0=非长剧本分段任务)
+    if (cols && !cols.includes("segment")) db.run(`ALTER TABLE ${TABLE} ADD COLUMN segment INTEGER DEFAULT 0`);
+    // 关联剧本 id(回写分镜状态用; 比按剧本名匹配可靠)
+    if (cols && !cols.includes("script_id")) db.run(`ALTER TABLE ${TABLE} ADD COLUMN script_id INTEGER DEFAULT 0`);
   } catch { /* 已存在 */ }
   await persist();
 }
@@ -157,6 +164,10 @@ export async function createVideoTask(input: {
   scriptName?: string;
   /** 所属剧本形态: short(默认) / long —— 视频库按它隔离 */
   kind?: string;
+  /** 长剧本分段生成: 这是第几段(0=非分段任务) */
+  segment?: number;
+  /** 关联剧本 id(长剧本分段回写分镜状态用) */
+  scriptId?: number;
 }): Promise<VideoTask> {
   const def = getModelDef(input.modelKey);
   if (!def) throw new Error(`未知模型: ${input.modelKey}`);
@@ -213,6 +224,8 @@ export async function createVideoTask(input: {
     model: def.model,
     scriptName: input.scriptName || "",
     kind: input.kind || "short",
+    segment: Number(input.segment || 0),
+    scriptId: Number(input.scriptId || 0),
     prompt: input.prompt,
     resolution: input.resolution || "",
     ratio: input.ratio || "",
@@ -227,9 +240,9 @@ export async function createVideoTask(input: {
   };
   const db = await getDb();
   db.run(
-    `INSERT INTO ${TABLE}(id,provider,model_key,model,script_name,kind,prompt,image_url,status,video_url,error,resolution,ratio,duration,created_at,updated_at)
-     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    [task.id, task.provider, task.modelKey, task.model, task.scriptName, task.kind || "short", task.prompt,
+    `INSERT INTO ${TABLE}(id,provider,model_key,model,script_name,kind,segment,script_id,prompt,image_url,status,video_url,error,resolution,ratio,duration,created_at,updated_at)
+     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [task.id, task.provider, task.modelKey, task.model, task.scriptName, task.kind || "short", Number(task.segment || 0), Number(task.scriptId || 0), task.prompt,
      task.imageUrl || "", task.status, task.videoUrl || "", task.error || "",
      task.resolution || "", task.ratio || "", task.duration || "", now, now],
   );
@@ -273,6 +286,31 @@ async function downloadVideo(id: string, url: string): Promise<string | null> {
     fs.writeFileSync(path.join(dir, `${id}.mp4`), buf);
     return `/api/uploads/videos/${id}.mp4`;
   } catch { return null; }
+}
+
+/** 长剧本分段任务 → 把结果回写到该段的分镜行(界面按段同步显示 黄/绿/红 + 可直接播放成片)
+ *  幂等: 重复调用只是把同一结果再写一次 */
+export async function syncSegmentToStoryboard(
+  status: string, error: string | null, videoUrl: string | null, scriptId: number, segment: number,
+): Promise<void> {
+  if (!scriptId || !segment) return;                       // 非长剧本分段任务
+  if (status !== "succeeded" && status !== "failed" && status !== "cancelled") return;   // 只回写终态
+  try {
+    const ok = status === "succeeded";
+    const db = await getDb();
+    db.run(
+      "UPDATE storyboards SET status=?, video_url=?, error=?, media_type=?, media_url=?, updated_at=? WHERE script_id=? AND segment=?",
+      [
+        ok ? "succeeded" : "failed",
+        ok ? (videoUrl || "") : "",
+        ok ? "" : (friendlyVideoError(error || "生成失败") || "生成失败").slice(0, 200),
+        ok && videoUrl ? "video" : "",
+        ok && videoUrl ? videoUrl : "",
+        new Date().toISOString(), scriptId, segment,
+      ],
+    );
+    await persist();
+  } catch { /* ignore */ }
 }
 
 /** 拉商家最新状态并落库, 返回更新后的任务(不存在于本地则返回 null) */
@@ -338,6 +376,8 @@ export async function refreshVideoTask(id: string): Promise<VideoTask | null> {
     [fresh.status, fresh.videoUrl || "", friendlyVideoError(fresh.error || ""), now, id],
   );
   await persist();
+  // 长剧本分段: 把结果同步回该段的分镜行(界面据此显示状态与成片)
+  await syncSegmentToStoryboard(fresh.status, fresh.error ?? null, fresh.videoUrl ?? null, Number(local.scriptId || 0), Number(local.segment || 0));
   return {
     ...local,
     status: fresh.status,
@@ -351,26 +391,28 @@ export async function refreshVideoTask(id: string): Promise<VideoTask | null> {
  *  kind: short/long —— 视频库按剧本形态隔离(不传则全部) */
 export async function listVideoTasks(limit = 50, offset = 0, kind?: string): Promise<VideoTask[]> {
   const db = await getDb();
-  const where = kind ? "WHERE kind = ?" : "";
-  const params: unknown[] = kind ? [kind, limit, offset] : [limit, offset];
+  // 排除长剧本的「段任务」(segment>0): 它们是分镜列表的中间产物, 不属于视频库;
+  // 视频库只收 segment=0 的成片(拼接产物 / 短剧本任务)
+  const cond: string[] = ["segment = 0"];
+  const params: unknown[] = [];
+  if (kind) { cond.push("kind = ?"); params.push(kind); }
   const rows = queryAll(
     db,
-    `SELECT * FROM ${TABLE} ${where}
+    `SELECT * FROM ${TABLE} WHERE ${cond.join(" AND ")}
      ORDER BY CASE status WHEN 'succeeded' THEN 0 else 1 END, updated_at DESC
      LIMIT ? OFFSET ?`,
-    params,
+    [...params, limit, offset],
   );
   return rows.map(rowToTask);
 }
 
-/** 生成中任务数(queued/running, 含占位) —— 视频库徽标用; kind 同列表过滤口径 */
+/** 生成中任务数(queued/running) —— 视频库徽标用; 同样排除长剧本的段任务(segment>0) */
 export async function pendingVideoTaskCount(kind?: string): Promise<number> {
   const db = await getDb();
-  const r = queryOne(
-    db,
-    `SELECT COUNT(*) AS n FROM ${TABLE} WHERE status IN ('queued','running')${kind ? " AND kind = ?" : ""}`,
-    kind ? [kind] : [],
-  );
+  const cond = ["status IN ('queued','running')", "segment = 0"];
+  const params: unknown[] = [];
+  if (kind) { cond.push("kind = ?"); params.push(kind); }
+  const r = queryOne(db, `SELECT COUNT(*) AS n FROM ${TABLE} WHERE ${cond.join(" AND ")}`, params);
   return Number(r?.n ?? 0);
 }
 

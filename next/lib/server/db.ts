@@ -171,6 +171,43 @@ function initSchema(db: Database): void {
   } catch { /* ignore */ }
 
   // 图片表: 人物/场景等模块共用图片资源
+  // 详细分镜表: 剧本解析出的连续分镜(长剧本/短剧本统一的镜头结构)
+  // 元数据: 时间段 | 提示词 | 媒体形式(image/video) | 备注 —— 媒体由用户关联, 不由 AI 生成
+  db.run(`
+    CREATE TABLE IF NOT EXISTS storyboards (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      script_id  INTEGER NOT NULL,
+      seq        INTEGER DEFAULT 0,
+      time_range TEXT DEFAULT '',
+      duration   INTEGER DEFAULT 0,
+      prompt     TEXT DEFAULT '',
+      media_type TEXT DEFAULT '',
+      media_url  TEXT DEFAULT '',
+      note       TEXT DEFAULT '',
+      segment    INTEGER DEFAULT 0,
+      status     TEXT DEFAULT 'idle',
+      video_url  TEXT DEFAULT '',
+      error      TEXT DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+  try { db.run("CREATE INDEX IF NOT EXISTS idx_storyboards_script ON storyboards(script_id, seq)"); } catch { /* ignore */ }
+  // 旧库迁移: 补后续新增的列(幂等)
+  try {
+    const sc = db.exec("PRAGMA table_info(storyboards)")[0]?.values.map((r) => r[1]);
+    for (const [col, def] of [
+      ["duration", "INTEGER DEFAULT 0"],
+      // 长剧本分段生成: segment=第几段(几个分镜合一段, 累积≤模型上限) / status=idle·running·succeeded·failed
+      ["segment", "INTEGER DEFAULT 0"],
+      ["status", "TEXT DEFAULT 'idle'"],
+      ["video_url", "TEXT DEFAULT ''"],
+      ["error", "TEXT DEFAULT ''"],
+    ] as [string, string][]) {
+      if (sc && !sc.includes(col)) db.run(`ALTER TABLE storyboards ADD COLUMN ${col} ${def}`);
+    }
+  } catch { /* ignore */ }
+
   db.run(`
     CREATE TABLE IF NOT EXISTS images (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,

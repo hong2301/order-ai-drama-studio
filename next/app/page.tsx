@@ -2,20 +2,19 @@
 
 import { useEffect, useState } from "react";
 import { Button, Segmented } from "antd";
-import { useThemeMode } from "./ThemeProvider";
+import { usePrefs } from "./ThemeProvider";
 import { ReloadOutlined } from "@ant-design/icons";
 import ChatModule from "./components/ChatModule";
 import ScriptModule from "./components/ScriptModule";
 import ConsoleModule from "./components/ConsoleModule";
 import InfoCardModule from "./components/InfoCardModule";
+import StoryboardPanel from "./components/StoryboardPanel";
 import KeySettings from "./components/KeySettings";
 
 export default function Home() {
   const [version, setVersion] = useState("");
-  /** 剧本形态: 短剧本(现有工作台) / 长剧本(待建设) */
-  const [mode, setMode] = useState<"short" | "long">("short");
-  /** 深浅色(全局, 由 ThemeProvider 驱动) */
-  const { mode: themeMode, setMode: setThemeMode } = useThemeMode();
+  /** 全局偏好(存 cookie, 服务端读得到): 深浅色 + 剧本形态 —— 刷新后保持, 且无 hydration mismatch */
+  const { themeMode, setThemeMode, scriptMode, setScriptMode } = usePrefs();
 
   // 版本号(logo 栏标题右侧显示)
   useEffect(() => {
@@ -42,8 +41,8 @@ export default function Home() {
         {/* 剧本形态切换: 短剧本(现有工作台) / 长剧本(待建设); 位于刷新按钮左侧
             不设 size → 用 antd 默认尺寸(controlHeight=32), 与右侧刷新按钮等高 */}
         <Segmented
-          value={mode}
-          onChange={(v) => setMode(v as "short" | "long")}
+          value={scriptMode}
+          onChange={(v) => setScriptMode(v as "short" | "long")}
           options={[
             { label: "短剧本", value: "short" },
             { label: "长剧本", value: "long" },
@@ -70,25 +69,27 @@ export default function Home() {
 
       {/* body: 模块从左到右排列, 自动填充剩余高度(无 tail) */}
       {/* body: 短剧本(现有三列工作台) / 长剧本(三列, 左列剧本库, 其余待建设) */}
-      {mode === "long" ? (
+      {scriptMode === "long" ? (
         <div style={{ flex: 1, minHeight: 0, padding: 16, display: "flex", gap: 16, alignItems: "stretch", overflowX: "auto" }}>
-          {/* 左列: 长剧本库(kind=long, 与短剧本数据隔离) */}
-          <div style={{ flex: 1, minWidth: 420, display: "flex", flexDirection: "column", gap: 12 }}>
-            <ScriptModule kind="long" />
-          </div>
-          {/* 中列 / 右列: 待建设 */}
-          {[0, 1].map((i) => (
-            <div
-              key={i}
-              style={{
-                flex: 1, minWidth: 420, display: "flex", alignItems: "center", justifyContent: "center",
-                border: "1px dashed var(--border-4)", borderRadius: 12,
-                color: "var(--text-5)", fontSize: 13, letterSpacing: 1,
-              }}
-            >
-              待建设
+          {/* 左列: 长剧本库(上, 6) + 控制台(下, 4) —— 与短剧本同构; 剧本库按 kind=long 隔离 */}
+          <div style={{ flex: 0.9, minWidth: 380, display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ flex: 6, minHeight: 0, display: "flex", flexDirection: "column" }}>
+              <ScriptModule kind="long" />
             </div>
-          ))}
+            <div style={{ flex: 4, minHeight: 0, display: "flex", flexDirection: "column" }}>
+              <ConsoleModule kind="long" />
+            </div>
+          </div>
+          {/* 中列: 详细分镜(选中剧本后显示; 未选中提示先选剧本) —— 多占两成宽度(左右各让一成) */}
+          <div style={{ flex: 1.2, minWidth: 460, display: "flex", flexDirection: "column" }}>
+            <StoryboardPanel />
+          </div>
+          {/* 右列: 人物/场景/产品 三库(与短剧本共用同一套资料库) */}
+          <div style={{ flex: 0.9, minWidth: 380, display: "flex", flexDirection: "column", gap: 12 }}>
+            <InfoCardModule title="人物库" api="/api/characters" identityLabel="身份" identityPlaceholder="输入身份后回车, 如 主角/婆婆/邻居" />
+            <InfoCardModule title="场景库" api="/api/scenes" identityLabel="类型" identityPlaceholder="" showIdentity={false} />
+            <InfoCardModule title="产品库" api="/api/products" identityLabel="品类" identityPlaceholder="" showIdentity={false} />
+          </div>
         </div>
       ) : (
       <div style={{ flex: 1, minHeight: 0, padding: 16, display: "flex", gap: 16, alignItems: "stretch", overflowX: "auto" }}>

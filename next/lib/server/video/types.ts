@@ -97,6 +97,10 @@ export interface VideoTask {
   scriptName?: string;   // 关联剧本名(视频库展示)
   /** 所属剧本形态: short=短剧本(默认) / long=长剧本 —— 视频库按它隔离 */
   kind?: string;
+  /** 长剧本分段生成: 这是第几段(0=非分段任务) */
+  segment?: number;
+  /** 关联剧本 id(长剧本分段回写分镜状态用; 比按剧本名匹配可靠) */
+  scriptId?: number;
   prompt: string;
   resolution?: string;
   ratio?: string;

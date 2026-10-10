@@ -67,6 +67,31 @@ const PARSE_TOOL: ToolDef = {
       duration: { type: "string", description: "时长(秒), 如 15(剧本未提及则为空)" },
       ratio: { type: "string", description: "画面比例, 如 9:16/16:9(剧本未提及则为空)" },
       keywords: { type: "array", items: { type: "string" }, description: "剔除人物/场景/产品名称与标签等已知信息后的关键词, 如 亲情/怀旧/带货/反转, 3~8个" },
+      shots: {
+        type: "array",
+        description:
+          "把剧本拆成**按时间顺序的连续详细分镜**(每段一个镜头)。剧本可能已经结构化(带时间段/分镜表), 也可能只是一大段连续文本 —— 两种情况都要拆成同一种结构: 时间段 + 该段画面提示词(+备注)。",
+        items: {
+          type: "object",
+          properties: {
+            time_range: { type: "string", description: "该段的时间段, 如 0-4秒; 剧本没给具体秒数时按顺序写 第1段/第2段" },
+            duration: {
+              type: "integer",
+              description:
+                "该段的时长(秒)。剧本里明确写了秒数就照它填(如写「4-8秒」则填 4); 剧本没写就根据这段的叙事内容自主分配一个合理值, 一般 3~6 秒",
+            },
+            prompt: { type: "string", description: "该段的画面提示词(地点/人物动作/对白/镜头), 可直接用于视频生成" },
+            media_type: {
+              type: "string",
+              enum: ["image", "video"],
+              description:
+                "该段的媒体形式: 需要动态画面(人物动作/镜头运动/场景变化) → video; 只需静态展示(产品图/图片说明/纯定帧) → image。拿不准就填 video",
+            },
+            note: { type: "string", description: "固定留空字符串 —— 备注是给用户在界面上临时标注的，不要生成内容" },
+          },
+          required: ["time_range", "prompt", "duration", "media_type"],
+        },
+      },
     },
     required: ["characters", "scenes", "products", "keywords"],
   },
@@ -125,10 +150,11 @@ export async function parseScript(scriptId: number): Promise<{ ok: boolean; deta
     "3) products: 出现的产品(每个给 name/identity 品类标签/prompt 描述); 没有就空数组",
     "4) resolution/duration/ratio: 仅当剧本明确提到清晰度/时长/画面比例时提取, 否则留空字符串",
     "5) keywords: 关键词 3~8 个——必须剔除 characters/scenes/products 的名称和身份标签等已知信息后, 提炼题材/风格/情绪/情节关键词(如 亲情/怀旧/带货/反转)",
-    "6) 重要: 各 prompt 只写画面/视觉描述(如角色外貌服装、场景环境光线、产品外观质感), 严禁把 身份/类型标签、清晰度/时长/比例 等配置信息写进 prompt——它们是独立字段, 生成视频时会另行拼接成完整提示词",
+    "6) shots: 把剧本拆成按时间顺序的连续详细分镜(每段一个镜头), 每段给 time_range(时间段) / duration(时长秒) / prompt(画面提示词) / media_type(媒体形式)。**剧本里写明每段几秒就照它填**; 没写的根据这段叙事自主分配(一般 3~6 秒, 不要填 0)。media_type: 需要动态画面(人物动作/镜头运动/场景变化)填 video, 只需静态展示(产品图/图片说明/纯定帧)填 image, 拿不准填 video。剧本若是分镜表/带时间轴就沿用它的切分; 若只是一大段连续文本, 就按叙事自然切分。**不要填 note(备注留给用户自己临时写, 固定留空)**",
+    "7) 重要: 各 prompt 只写画面/视觉描述(如角色外貌服装、场景环境光线、产品外观质感), 严禁把 身份/类型标签、清晰度/时长/比例 等配置信息写进 prompt——它们是独立字段, 生成视频时会另行拼接成完整提示词",
     imgDataUrls.length
-      ? `7) 另附剧本中的 ${imgDataUrls.length} 张图片(按附图顺序编号 1..${imgDataUrls.length})。请识别每张图片内容, 判断它属于哪个人物/场景/产品, 在对应条目的 image_index 填图片序号(无匹配则不填)`
-      : "7) 本次没有附件图片, 不需要填 image_index",
+      ? `8) 另附剧本中的 ${imgDataUrls.length} 张图片(按附图顺序编号 1..${imgDataUrls.length})。请识别每张图片内容, 判断它属于哪个人物/场景/产品, 在对应条目的 image_index 填图片序号(无匹配则不填)`
+      : "8) 本次没有附件图片, 不需要填 image_index",
   ].join("\n");
 
   const result: { value: Record<string, unknown> | null } = { value: null };
@@ -201,6 +227,29 @@ export async function parseScript(scriptId: number): Promise<{ ok: boolean; deta
   }
   const keywords = Array.isArray(v.keywords) ? v.keywords.map((s) => String(s).trim()).filter(Boolean).slice(0, 10) : [];
 
+  // 详细分镜: 先清空该剧本旧分镜再按序写入(解析幂等); media_type/media_url 由用户在界面上关联, AI 不生成
+  let shotCount = 0;
+  try {
+    db.run("DELETE FROM storyboards WHERE script_id=?", [scriptId]);
+    const shots = Array.isArray(v.shots) ? (v.shots as Record<string, unknown>[]) : [];
+    shots.forEach((s, i) => {
+      const tr = String(s.time_range || "").trim();
+      const pr = String(s.prompt || "").trim();
+      if (!tr && !pr) return;
+      // 时长: 剧本写明的用原值; 没写的由 AI 自主分配; 都没给则缺省 4 秒(界面可再调)
+      const rawDur = Number(s.duration);
+      const dur = Number.isFinite(rawDur) && rawDur > 0 ? Math.round(rawDur) : 4;
+      // 媒体形式: 剧本/AI 判定 image/video; 拿不准按 video(要生成)
+      const mediaType = String(s.media_type || "").trim() === "image" ? "image" : "video";
+      // 备注固定留空: 它不是解析产物, 而是留给用户在界面上的临时标注
+      db.run(
+        "INSERT INTO storyboards(script_id, seq, time_range, duration, prompt, media_type, media_url, note, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+        [scriptId, i + 1, tr, dur, pr, mediaType, "", "", now, now],
+      );
+      shotCount++;
+    });
+  } catch { /* ignore */ }
+
   // 物料指纹: 解析出的 人物/场景/产品 快照(三库内容/勾选变化时比对用, 生成时决定是否需一致性适配)
   const { materialsFp } = await import("@/lib/server/video/adapt");
   const fpMats = (table: "characters" | "scenes" | "products", ids: number[]): { name: string; prompt: string }[] => {
@@ -223,10 +272,10 @@ export async function parseScript(scriptId: number): Promise<{ ok: boolean; deta
     ],
   );
   await persist();
-  log(`解析完成 剧本${scriptId}(${String(row.name)}): ${charIds.length}人物/${sceneIds.length}场景/${prodIds.length}产品 ${String(v.resolution || "")} ${String(v.duration || "")}秒`);
+  log(`解析完成 剧本${scriptId}(${String(row.name)}): ${charIds.length}人物/${sceneIds.length}场景/${prodIds.length}产品/${shotCount}分镜 ${String(v.resolution || "")} ${String(v.duration || "")}秒`);
 
   return {
     ok: true,
-    summary: `人物${charIds.length} · 场景${sceneIds.length} · 产品${prodIds.length}${v.resolution ? ` · ${String(v.resolution)}` : ""}${v.duration ? ` · ${String(v.duration)}秒` : ""}`,
+    summary: `人物${charIds.length} · 场景${sceneIds.length} · 产品${prodIds.length} · 分镜${shotCount}${v.resolution ? ` · ${String(v.resolution)}` : ""}${v.duration ? ` · ${String(v.duration)}秒` : ""}`,
   };
 }

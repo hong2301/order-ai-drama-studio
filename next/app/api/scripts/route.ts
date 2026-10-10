@@ -84,14 +84,12 @@ export async function POST(req: NextRequest): Promise<Response> {
   // last_insert_rowid 须在 persist(export) 前读取
   const id = Number(db.exec("SELECT last_insert_rowid()")[0]?.values[0]?.[0] ?? 0);
   await persist();
-  // 自动解析(识别人物/场景/产品/清晰度/时长/关键词; 失败不影响添加)
-  // 长剧本现阶段只要求「存住」—— 不解析、不提取物料、不联动资料库
+  // 自动解析(识别人物/场景/产品/清晰度/时长/关键词 + 详细分镜; 失败不影响添加)
+  // 长/短剧本统一走同一套解析
   let parse = null;
-  if (kind !== "long") {
-    try {
-      const { parseScript } = await import("@/lib/server/scriptParse");
-      parse = await parseScript(id);
-    } catch { /* ignore */ }
-  }
+  try {
+    const { parseScript } = await import("@/lib/server/scriptParse");
+    parse = await parseScript(id);
+  } catch { /* ignore */ }
   return Response.json({ ok: true, id, parse });
 }

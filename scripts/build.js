@@ -128,6 +128,14 @@ if (fs.existsSync(wasmSrc)) {
   fs.copyFileSync(wasmSrc, wasmDst)
   console.log('copy sql-wasm.wasm -> next-server/node_modules/sql.js/dist/')
 }
+// ffmpeg-static: 长剧本分段成片拼接用; 同样是 trace 收不到的非 JS 资源, 手动补拷(否则 exe 里拼不了)
+const ffmpegSrc = path.join(NEXT, 'node_modules', 'ffmpeg-static', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')
+const ffmpegDst = path.join(nextServerDst, 'node_modules', 'ffmpeg-static', path.basename(ffmpegSrc))
+if (fs.existsSync(ffmpegSrc)) {
+  fs.mkdirSync(path.dirname(ffmpegDst), { recursive: true })
+  fs.copyFileSync(ffmpegSrc, ffmpegDst)
+  console.log(`copy ${path.basename(ffmpegSrc)} -> next-server/node_modules/ffmpeg-static/`)
+}
 // Key 已存数据库(界面设置), 打包不再复制 .env(避免密钥打进分发产物); 清掉历史残留
 const envRelease = path.join(RELEASE, '.env')
 if (fs.existsSync(envRelease)) fs.rmSync(envRelease, { force: true })

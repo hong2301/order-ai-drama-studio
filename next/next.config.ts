@@ -26,8 +26,9 @@ const nextConfig: NextConfig = {
   images: { unoptimized: true },
   // Electron 壳经 127.0.0.1 访问 dev 资源(热更新), 允许跨域
   allowedDevOrigins: ["127.0.0.1"],
-  // better-sqlite3 为原生模块: 交由 Node 运行时从 node_modules 直接加载(webpack 不参与)
-  serverExternalPackages: ["sql.js"],
+  // sql.js(WASM) 与 ffmpeg-static(自带 ffmpeg 二进制) 都交给 Node 运行时从 node_modules 直接加载:
+  // 它们靠 __dirname 定位自己的二进制文件, 一旦被 webpack 打包, __dirname 会变成 .next/... 就找不到了
+  serverExternalPackages: ["sql.js", "ffmpeg-static"],
 };
 
 export default nextConfig;
